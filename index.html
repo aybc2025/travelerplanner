@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>מחשבון מסלולים – TransLink SkyTrain (MVP)</title>
+
+  <meta name="theme-color" content="#003DA5" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // הרחבת Tailwind לצבעי TransLink / SkyTrain
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            trans: {
+              blue: '#003DA5',   // TransLink Blue (Header/Brand)
+              gold: '#FDB515',   // Millennium Line
+              teal: '#00B7C3',   // Canada Line
+              expo: '#0060A9',   // Expo Line
+              ink:  '#0F172A',   // Slate-ish text
+              haze: '#F5F7FB'    // Light background
+            }
+          },
+          boxShadow: {
+            soft: '0 10px 30px rgba(0,0,0,.06)'
+          },
+          borderRadius: {
+            '2xl': '1rem',
+            '3xl': '1.25rem'
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* טיובי טיפוגרפיה קטנים */
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    .card { background: white; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.06); }
+    .chip { display:inline-flex; align-items:center; gap:.5rem; padding:.25rem .6rem; border-radius:9999px; font-size:.75rem; font-weight:600; }
+    .chip-dot { width:.6rem; height:.6rem; border-radius:9999px; display:inline-block; }
+    .grid-form label span { color:#475569 } /* slate-600 */
+    .grid-form select, .grid-form input { background:#fff }
+  </style>
+</head>
+
+<body class="min-h-screen bg-trans-haze text-trans-ink">
+  <!-- Header -->
+  <header class="sticky top-0 z-20 bg-trans-blue/95 text-white backdrop-blur border-b border-white/10">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
+      <img src="./icons/icon.svg" alt="" class="w-8 h-8" />
+      <div class="flex flex-col">
+        <h1 class="text-lg md:text-xl font-bold leading-tight">מחשבון מסלולים – TransLink SkyTrain (MVP)</h1>
+        <p class="text-xs md:text-sm text-white/80">עיצוב בהשראת צבעי TransLink: Expo, Millennium, Canada</p>
+      </div>
+      <span class="ms-auto chip bg-white/10">PWA</span>
+    </div>
+  </header>
+
+  <!-- Sub-nav: Legend -->
+  <div class="bg-white/80 border-b border-slate-200/70">
+    <div class="max-w-5xl mx-auto px-4 py-2 flex flex-wrap items-center gap-2">
+      <span class="chip bg-slate-100"><i class="chip-dot" style="background:#0060A9"></i> Expo Line</span>
+      <span class="chip bg-slate-100"><i class="chip-dot" style="background:#FDB515"></i> Millennium Line</span>
+      <span class="chip bg-slate-100"><i class="chip-dot" style="background:#00B7C3"></i> Canada Line</span>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <!-- Search Card -->
+    <section class="card p-4 md:p-6">
+      <h2 class="text-base md:text-lg font-semibold mb-3">חיפוש מסלול</h2>
+      <form id="tripForm" class="grid-form grid md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="text-sm">נקודת מוצא</span>
+          <select id="fromStop" class="mt-1 w-full border border-slate-200 rounded-2xl p-2 focus:outline-none focus:ring-2 focus:ring-trans-blue"></select>
+        </label>
+        <label class="block">
+          <span class="text-sm">יעד</span>
+          <select id="toStop" class="mt-1 w-full border border-slate-200 rounded-2xl p-2 focus:outline-none focus:ring-2 focus:ring-trans-blue"></select>
+        </label>
+
+        <label class="block">
+          <span class="text-sm">זמן יציאה</span>
+          <input id="depTime" type="time" class="mt-1 w-full border border-slate-200 rounded-2xl p-2 focus:outline-none focus:ring-2 focus:ring-trans-blue"/>
+        </label>
+        <label class="block">
+          <span class="text-sm">תאריך</span>
+          <input id="depDate" type="date" class="mt-1 w-full border border-slate-200 rounded-2xl p-2 focus:outline-none focus:ring-2 focus:ring-trans-blue"/>
+        </label>
+
+        <div class="md:col-span-2 flex flex-wrap gap-3">
+          <button type="submit" class="px-4 py-2 rounded-2xl bg-trans-blue text-white font-semibold hover:opacity-95 focus:ring-2 focus:ring-offset-1 focus:ring-trans-blue">
+            חשב מסלולים
+          </button>
+          <button type="button" id="swapBtn" class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200">
+            החלף מוצא/יעד
+          </button>
+          <button type="button" id="favBtn" class="px-3 py-2 rounded-2xl bg-amber-100 hover:bg-amber-200">
+            ⭐ שמירה למועדפים
+          </button>
+        </div>
+
+        <p class="md:col-span-2 text-xs text-slate-600 mt-1">
+          זהו <strong>MVP סטטי</strong>: זמן-אמת יתווסף בהמשך דרך פרוקסי TransLink GTFS-RT.
+        </p>
+      </form>
+    </section>
+
+    <!-- Results Card -->
+    <section class="card p-4 md:p-6">
+      <div class="flex items-center gap-3 mb-3">
+        <h2 class="text-base md:text-lg font-semibold">תוצאות</h2>
+        <span class="text-xs text-slate-500">החלופות המדורגות לפי זמן הגעה ופחות החלפות</span>
+      </div>
+      <div id="results" class="space-y-4">
+        <p class="text-slate-600 text-sm">אין עדיין תוצאות. מלא/י למעלה ולחץ/י "חשב מסלולים".</p>
+      </div>
+    </section>
+
+    <!-- Favourites Card -->
+    <section class="card p-4 md:p-6">
+      <div class="flex items-center gap-3 mb-3">
+        <h2 class="text-base md:text-lg font-semibold">מועדפים</h2>
+        <span class="text-xs text-slate-500">לחיצה על מועדף תמלא את הטופס ותחשב מסלול</span>
+      </div>
+      <div id="favs" class="flex flex-wrap gap-2"></div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="max-w-5xl mx-auto px-4 pb-10 text-xs text-slate-500">
+    בנוי לשלב MVP 1. העיצוב משתמש בפלטת TransLink (כחול/זהב/טיל). מוכן ל-GitHub Pages ו־PWA.
+  </footer>
+
+  <script src="./app.js"></script>
+  <script>
+    // רישום Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js').catch(console.error);
+      });
+    }
+  </script>
+</body>
+  </html>
