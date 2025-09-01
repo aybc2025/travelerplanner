@@ -1,9 +1,12 @@
-/* MVP סטטי — SkyTrain בלבד (Expo, Millennium, Canada) עם כל התחנות וכל ההסתעפויות.
-   נתיבי מסלול מחושבים על גרף, דו-כיווני, עד 2 החלפות, וזמן המתנה לפי headway.
-   תיקון: יישור תדירות ביחס ל-firstTrain והרחבת חלון שירות עד 01:15.
+/* =========================
+   MVP סטטי — SkyTrain בלבד
+   =========================
+   - מסלולים: כמו קודם (גרף, עד 2 החלפות, headway+שעות)
+   - חדש: מפה סכמטית (SVG) שמציירת את כל הקווים בצבעי TransLink,
+          ומדגישה את המסלול הנבחר.
 */
 
-/* ===== הגדרות קווים (headways/שעות שירות) ===== */
+/* ===== קווים וזמני שירות ===== */
 const LINE_META = {
   EXPO: {
     id: "EXPO", name: "Expo Line", color: "#0060A9",
@@ -12,9 +15,9 @@ const LINE_META = {
       { start: "07:00", end: "09:59", mins: 4 },
       { start: "10:00", end: "15:59", mins: 6 },
       { start: "16:00", end: "18:59", mins: 4 },
-      { start: "19:00", end: "25:15", mins: 8 } // עד 01:15 (25:15) בלילה
+      { start: "19:00", end: "25:15", mins: 8 }
     ],
-    firstTrain: "05:00", lastTrain: "25:15" // 01:15
+    firstTrain: "05:00", lastTrain: "25:15"
   },
   MILL: {
     id: "MILL", name: "Millennium Line", color: "#FDB515",
@@ -40,20 +43,13 @@ const LINE_META = {
   }
 };
 
-/* עזר זמן: תומך גם ב"זמנים אחרי חצות" (24:xx → 00:xx+יום) */
+/* עזרי זמן */
 const pad2 = n => String(n).padStart(2,"0");
-function toMinutes(hhmm){
-  const [h,m] = hhmm.split(":").map(Number);
-  return h*60 + m;
-}
-function toMinutesWrap(hhmm){
-  // מאפשר ערכים כמו "25:15" (= 01:15 למחרת)
-  const [h,m] = hhmm.split(":").map(Number);
-  return ((h%24)*60 + m) + (h>=24 ? 24*60 : 0);
-}
+function toMinutes(hhmm){ const [h,m]=hhmm.split(":").map(Number); return h*60+m; }
+function toMinutesWrap(hhmm){ const [h,m]=hhmm.split(":").map(Number); return ((h%24)*60+m)+(h>=24?1440:0); }
 const toHHMM = mins => `${pad2(Math.floor((mins%1440)/60))}:${pad2(mins%60)}`;
 
-/* ===== גרף תחנות (כמו קודם) ===== */
+/* ===== גרף תחנות (קשתות) ===== */
 function E(a,b,mins,line){ return {a,b,mins,line}; }
 const EDGES = [
   // EXPO: Waterfront -> Columbia
@@ -103,47 +99,38 @@ for (const {a,b,mins,line} of EDGES) {
   GRAPH_BY_LINE[line][a].push({to:b,mins});
   GRAPH_BY_LINE[line][b].push({to:a,mins});
 }
+const ALL_STOPS = [...new Set(Object.values(LINE_STOPS).flatMap(s => [...s]))].sort((a,b)=>a.localeCompare(b,'he'));
+const TRANSFER_HUBS = new Set(["Waterfront","Commercial–Broadway","Production Way–University","Lougheed Town Centre","Columbia"]);
 
-const ALL_STOPS = [...new Set(
-  Object.values(LINE_STOPS).flatMap(s => [...s])
-)].sort((a,b)=>a.localeCompare(b,'he'));
-
-const TRANSFER_HUBS = new Set(
-  ["Waterfront","Commercial–Broadway","Production Way–University","Lougheed Town Centre","Columbia"]
-);
-
-/* ===== ראשי תדירות/שירות ===== */
+/* ===== שעות/תדירויות ===== */
 function headwayFor(lineId, depMins){
   const meta = LINE_META[lineId];
-  const t = depMins % (24*60);          // דקה בתוך היום
-  const t2 = (depMins < 24*60) ? t : t + 24*60; // מאפשר טווח עד 01:15
+  const t = depMins % 1440;
+  const t2 = (depMins<1440)? t : t+1440;
   for (const w of meta.headways){
     const s = toMinutesWrap(w.start), e = toMinutesWrap(w.end);
-    if (s <= t2 && t2 <= e) return w.mins;
+    if (s<=t2 && t2<=e) return w.mins;
   }
-  return meta.headways[meta.headways.length-1].mins;
+  return meta.headways.at(-1).mins;
 }
-
 function scheduleDeparture(lineId, earliest){
   const meta = LINE_META[lineId];
   const first = toMinutesWrap(meta.firstTrain);
   const last  = toMinutesWrap(meta.lastTrain);
-  let depart  = Math.max(earliest, first);
-  if (depart > last) return null;
-
+  let depart = Math.max(earliest, first);
+  if (depart>last) return null;
   const hw = headwayFor(lineId, depart);
-  // *** יישור ביחס ל-firstTrain ***
   const offset = (depart - first) % hw;
   if (offset !== 0) depart += (hw - offset);
-  return depart <= last ? depart : null;
+  return depart<=last ? depart : null;
 }
 
-/* ===== דייקסטרה בתוך קו אחד ===== */
+/* ===== קיצור דרך: דייקסטרה לקו יחיד ===== */
 function shortestOnLine(lineId, from, to){
   if (!LINE_STOPS[lineId].has(from) || !LINE_STOPS[lineId].has(to)) return null;
   const adj = GRAPH_BY_LINE[lineId];
   const dist = new Map(), prev = new Map(), pq = [];
-  for (const s of Object.keys(adj)) dist.set(s, Infinity);
+  Object.keys(adj).forEach(s => dist.set(s, Infinity));
   dist.set(from,0); pq.push([0,from]);
   while(pq.length){
     pq.sort((a,b)=>a[0]-b[0]);
@@ -152,27 +139,20 @@ function shortestOnLine(lineId, from, to){
     if (u===to) break;
     for (const {to:v,mins} of adj[u]){
       const nd = d+mins;
-      if (nd < dist.get(v)){
-        dist.set(v,nd); prev.set(v,u); pq.push([nd,v]);
-      }
+      if (nd<dist.get(v)){ dist.set(v,nd); prev.set(v,u); pq.push([nd,v]); }
     }
   }
   if (dist.get(to)===Infinity) return null;
-  const path = []; let cur = to;
-  while (cur && cur!==from){ path.push(cur); cur = prev.get(cur); }
+  const path = []; let cur=to;
+  while(cur && cur!==from){ path.push(cur); cur=prev.get(cur); }
   path.push(from); path.reverse();
   return { mins: dist.get(to), path };
 }
 
-/* ===== יצירת מסלולים ===== */
+/* ===== בניית חלופות ===== */
 const LINES_ORDER = ["EXPO","MILL","CAN"];
 const TRANSFER_MIN = 3;
-
-function intersection(aSet, bSet){
-  const out = [];
-  for (const x of aSet) if (bSet.has(x)) out.push(x);
-  return out;
-}
+function intersection(aSet,bSet){ const out=[]; for (const x of aSet) if (bSet.has(x)) out.push(x); return out; }
 
 function planCandidates(from, to, depMins){
   const cands = [];
@@ -181,12 +161,10 @@ function planCandidates(from, to, depMins){
   for (const L of LINES_ORDER){
     const seg = shortestOnLine(L, from, to);
     if (seg){
-      const d1 = scheduleDeparture(L, depMins); if (d1==null) continue;
-      const a1 = d1 + seg.mins;
-      cands.push({
-        type:"DIRECT", transfers:0, depart:d1, arrive:a1,
-        legs:[{ line: LINE_META[L].name, lineId:L, color: LINE_META[L].color, from, to, depart:d1, arrive:a1, path:seg.path }]
-      });
+      const d1=scheduleDeparture(L,depMins); if (d1==null) continue;
+      const a1=d1+seg.mins;
+      cands.push({ type:"DIRECT", transfers:0, depart:d1, arrive:a1,
+        legs:[{ line:LINE_META[L].name, lineId:L, color:LINE_META[L].color, from, to, depart:d1, arrive:a1, path:seg.path }]});
     }
   }
 
@@ -196,22 +174,17 @@ function planCandidates(from, to, depMins){
       if (L1===L2) continue;
       for (const hub of intersection(LINE_STOPS[L1], LINE_STOPS[L2])){
         if (!TRANSFER_HUBS.has(hub)) continue;
-        const seg1 = shortestOnLine(L1, from, hub);
-        const seg2 = shortestOnLine(L2, hub, to);
-        if (!seg1 || !seg2) continue;
-
-        const d1 = scheduleDeparture(L1, depMins); if (d1==null) continue;
-        const a1 = d1 + seg1.mins;
-        const d2 = scheduleDeparture(L2, a1 + TRANSFER_MIN); if (d2==null) continue;
-        const a2 = d2 + seg2.mins;
-
-        cands.push({
-          type:"TRANSFER1", transfers:1, depart:d1, arrive:a2,
+        const seg1=shortestOnLine(L1,from,hub), seg2=shortestOnLine(L2,hub,to);
+        if (!seg1||!seg2) continue;
+        const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
+        const a1=d1+seg1.mins;
+        const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
+        const a2=d2+seg2.mins;
+        cands.push({ type:"TRANSFER1", transfers:1, depart:d1, arrive:a2,
           legs:[
-            { line: LINE_META[L1].name, lineId:L1, color: LINE_META[L1].color, from, to:hub, depart:d1, arrive:a1, path:seg1.path },
-            { line: LINE_META[L2].name, lineId:L2, color: LINE_META[L2].color, from:hub, to, depart:d2, arrive:a2, path:seg2.path }
-          ]
-        });
+            { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:hub, depart:d1, arrive:a1, path:seg1.path },
+            { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:hub, to, depart:d2, arrive:a2, path:seg2.path }
+          ]});
       }
     }
   }
@@ -221,52 +194,44 @@ function planCandidates(from, to, depMins){
     for (const L2 of LINES_ORDER){
       if (L1===L2) continue;
       for (const L3 of LINES_ORDER){
-        if (L3===L1 || L3===L2) continue;
-
-        const inter12 = intersection(LINE_STOPS[L1], LINE_STOPS[L2]);
-        const inter23 = intersection(LINE_STOPS[L2], LINE_STOPS[L3]);
-
+        if (L3===L1||L3===L2) continue;
+        const inter12=intersection(LINE_STOPS[L1],LINE_STOPS[L2]);
+        const inter23=intersection(LINE_STOPS[L2],LINE_STOPS[L3]);
         for (const h1 of inter12){
           if (!TRANSFER_HUBS.has(h1)) continue;
-          const seg1 = shortestOnLine(L1, from, h1);
-          if (!seg1) continue;
+          const seg1=shortestOnLine(L1,from,h1); if (!seg1) continue;
           for (const h2 of inter23){
             if (!TRANSFER_HUBS.has(h2)) continue;
-            const seg2 = shortestOnLine(L2, h1, h2);
-            const seg3 = shortestOnLine(L3, h2, to);
-            if (!seg2 || !seg3) continue;
-
-            const d1 = scheduleDeparture(L1, depMins); if (d1==null) continue;
-            const a1 = d1 + seg1.mins;
-            const d2 = scheduleDeparture(L2, a1 + TRANSFER_MIN); if (d2==null) continue;
-            const a2 = d2 + seg2.mins;
-            const d3 = scheduleDeparture(L3, a2 + TRANSFER_MIN); if (d3==null) continue;
-            const a3 = d3 + seg3.mins;
-
-            cands.push({
-              type:"TRANSFER2", transfers:2, depart:d1, arrive:a3,
+            const seg2=shortestOnLine(L2,h1,h2), seg3=shortestOnLine(L3,h2,to);
+            if (!seg2||!seg3) continue;
+            const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
+            const a1=d1+seg1.mins;
+            const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
+            const a2=d2+seg2.mins;
+            const d3=scheduleDeparture(L3,a2+TRANSFER_MIN); if (d3==null) continue;
+            const a3=d3+seg3.mins;
+            cands.push({ type:"TRANSFER2", transfers:2, depart:d1, arrive:a3,
               legs:[
-                { line: LINE_META[L1].name, lineId:L1, color: LINE_META[L1].color, from, to:h1, depart:d1, arrive:a1, path:seg1.path },
-                { line: LINE_META[L2].name, lineId:L2, color: LINE_META[L2].color, from:h1, to:h2, depart:d2, arrive:a2, path:seg2.path },
-                { line: LINE_META[L3].name, lineId:L3, color: LINE_META[L3].color, from:h2, to, depart:d3, arrive:a3, path:seg3.path }
-              ]
-            });
+                { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:h1, depart:d1, arrive:a1, path:seg1.path },
+                { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:h1, to:h2, depart:d2, arrive:a2, path:seg2.path },
+                { line:LINE_META[L3].name, lineId:L3, color:LINE_META[L3].color, from:h2, to, depart:d3, arrive:a3, path:seg3.path }
+              ]});
           }
         }
       }
     }
   }
 
-  // סינון ומיון
-  const uniq = new Map();
+  // ייחודיות ומיון
+  const uniq=new Map();
   for (const r of cands){
     const key = `${r.legs.map(l=>l.lineId+':'+l.from+'>'+l.to).join('|')}-${r.depart}`;
     if (!uniq.has(key)) uniq.set(key,r);
   }
-  return [...uniq.values()].sort((a,b)=> (a.arrive-b.arrive) || (a.transfers-b.transfers)).slice(0,3);
+  return [...uniq.values()].sort((a,b)=>(a.arrive-b.arrive)||(a.transfers-b.transfers)).slice(0,3);
 }
 
-/* ====== UI (כמו קודם) ====== */
+/* ====== UI קיימת ====== */
 const fromSel = document.getElementById('fromStop');
 const toSel   = document.getElementById('toStop');
 const depTime = document.getElementById('depTime');
@@ -274,47 +239,69 @@ const depDate = document.getElementById('depDate');
 const resultsEl = document.getElementById('results');
 const favBtn = document.getElementById('favBtn');
 const favsEl = document.getElementById('favs');
+const btnShowOnMap = document.getElementById('btnShowOnMap');
+const btnResetMap  = document.getElementById('btnResetMap');
 
 function populateStops(){
   for (const s of ALL_STOPS){
-    const o1 = document.createElement('option'); o1.value=s; o1.textContent=s;
-    const o2 = document.createElement('option'); o2.value=s; o2.textContent=s;
+    const o1=document.createElement('option'); o1.value=s; o1.textContent=s;
+    const o2=document.createElement('option'); o2.value=s; o2.textContent=s;
     fromSel.appendChild(o1); toSel.appendChild(o2);
   }
-  fromSel.value = "Waterfront";
-  toSel.value = "Commercial–Broadway";
+  fromSel.value="Waterfront"; toSel.value="Commercial–Broadway";
   const now = new Date();
-  depDate.valueAsDate = now;
+  depDate.valueAsDate=now;
   depTime.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 }
 
 function minutesFromDateTimeInputs(){
-  const d = depDate.value ? new Date(depDate.value) : new Date();
+  const d = depDate.value? new Date(depDate.value) : new Date();
   const [hh,mm] = (depTime.value || "00:00").split(':').map(Number);
   d.setHours(hh??0, mm??0, 0, 0);
-  // אם השעה קטנה מ-03:00, נתייחס אליה כלילה מאוחרת (מעל 24:00) כדי לאפשר 01:15
   const mins = d.getHours()*60 + d.getMinutes();
-  return mins < 180 ? mins + 24*60 : mins;
+  return mins < 180 ? mins+1440 : mins; // תמיכה עד 01:15
 }
 
+let lastTrips = []; // נשמור את התוצאות האחרונות לציור במסך המפה
+
+document.getElementById('tripForm').addEventListener('submit', (e)=>{
+  e.preventDefault();
+  const from=fromSel.value, to=toSel.value;
+  if (from===to){ resultsEl.innerHTML=`<p class="text-sm text-red-600">בחר/י מוצא ויעד שונים.</p>`; return; }
+  const dep = minutesFromDateTimeInputs();
+  const list = planCandidates(from,to,dep);
+  lastTrips = list;
+  renderResults(list);
+  drawNetwork(); // מצייר רשת בסיס
+});
+
+document.getElementById('swapBtn').addEventListener('click', ()=>{
+  const a=fromSel.value, b=toSel.value; fromSel.value=b; toSel.value=a;
+});
+
+document.getElementById('favBtn').addEventListener('click', ()=>{
+  saveFav(fromSel.value, toSel.value);
+});
+
+/* ====== תוצאות ====== */
 function renderResults(list){
-  resultsEl.innerHTML = '';
+  resultsEl.innerHTML='';
   if (!list.length){
     resultsEl.innerHTML = `<p class="text-sm text-slate-600">לא נמצאו חלופות מתאימות בטווח השעות שנבחר.</p>`;
     return;
   }
-  for (const r of list){
+  list.forEach((r,idx)=>{
     const dur = r.arrive - r.depart;
     const el = document.createElement('div');
-    el.className = 'border rounded-xl p-3 bg-white';
+    el.className='border rounded-xl p-3 bg-white';
     el.innerHTML = `
       <div class="flex items-center gap-2">
-        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
-              style="background:#eef; color:#223;">${r.transfers? (r.transfers===1?'החלפה אחת':'2 החלפות') : 'ישיר'}</span>
+        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold" style="background:#eef">${r.transfers? (r.transfers===1?'החלפה אחת':'2 החלפות') : 'ישיר'}</span>
         <span class="text-sm text-slate-600">יציאה ${toHHMM(r.depart)} • הגעה ${toHHMM(r.arrive)} • ${dur} דק׳</span>
+        <button class="ml-auto px-2 py-1.5 text-xs rounded bg-slate-100 hover:bg-slate-200" data-idx="${idx}">הצג מסלול על המפה</button>
       </div>
       <ol class="mt-2 space-y-2">
-        ${r.legs.map(l => `
+        ${r.legs.map(l=>`
           <li class="flex items-center gap-2">
             <span class="w-3 h-3 rounded-full" style="background:${l.color}"></span>
             <span class="font-medium">${l.line}</span>
@@ -324,56 +311,198 @@ function renderResults(list){
         `).join('')}
       </ol>
     `;
+    // כפתור מקומי להצגת מסלול
+    el.querySelector('button').addEventListener('click', ()=>{
+      highlightTripOnMap(lastTrips[idx]);
+    });
     resultsEl.appendChild(el);
-  }
+  });
 }
 
-/* מועדפים */
+/* ====== מועדפים ====== */
 function loadFavs(){
-  favsEl.innerHTML = '';
-  const favs = JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!favs.length){
-    favsEl.innerHTML = `<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`;
-    return;
-  }
+  favsEl.innerHTML='';
+  const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
+  if (!favs.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
   for (const f of favs){
-    const b = document.createElement('button');
-    b.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
-    b.textContent = `⭐ ${f.from} → ${f.to}`;
+    const b=document.createElement('button');
+    b.className='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
+    b.textContent=`⭐ ${f.from} → ${f.to}`;
     b.addEventListener('click', ()=>{
-      fromSel.value = f.from; toSel.value = f.to;
+      fromSel.value=f.from; toSel.value=f.to;
       document.getElementById('tripForm').dispatchEvent(new Event('submit'));
     });
     favsEl.appendChild(b);
   }
 }
 function saveFav(from,to){
-  const favs = JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!favs.find(x=>x.from===from && x.to===to)){
-    favs.push({from,to});
-    localStorage.setItem('mvpfavs', JSON.stringify(favs));
-    loadFavs();
+  const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
+  if (!favs.find(x=>x.from===from&&x.to===to)){
+    favs.push({from,to}); localStorage.setItem('mvpfavs',JSON.stringify(favs)); loadFavs();
   }
 }
 
-/* אירועים */
-document.getElementById('tripForm').addEventListener('submit', (e)=>{
-  e.preventDefault();
-  const from = fromSel.value, to = toSel.value;
-  if (from === to){
-    resultsEl.innerHTML = `<p class="text-sm text-red-600">בחר/י מוצא ויעד שונים.</p>`;
-    return;
+/* ====== סכמת רשת SVG ======
+   מיקום סכמטי אוטומטי: "גזע" לאורך ציר X לכל קו, וענפים בהסטה.
+   כל התחנות יקבלו מיקום עקבי כך שצמתי החלפה יחפפו.
+*/
+const svg = document.getElementById('svgRoot');
+
+function drawNetwork(){
+  // ננקה
+  svg.innerHTML='';
+  // layout params
+  const baseY = { EXPO:120, MILL:240, CAN:360 };
+  const gap  = 70; // מרווח בין תחנות בגזע
+  const offset = { // הסטים לענפים
+    EXPO: { branch1:+0, branch2:+0 },
+    MILL: { up:+0, down:+0 },
+    CAN:  { yvr:+40, richmond:-40 }
+  };
+
+  // נבנה סדר תחנות "גזע" לכל קו + רשימות לענפים
+  const trunk = {
+    EXPO: ["Waterfront","Burrard","Granville","Stadium–Chinatown","Main Street–Science World","Commercial–Broadway",
+           "Nanaimo","29th Avenue","Joyce–Collingwood","Patterson","Metrotown","Royal Oak","Edmonds","22nd Street","New Westminster","Columbia"],
+    MILL: ["VCC–Clark","Commercial–Broadway","Renfrew","Rupert","Gilmore","Brentwood Town Centre","Holdom","Sperling–Burnaby Lake","Lake City Way","Production Way–University","Lougheed Town Centre"],
+    CAN:  ["Waterfront","Vancouver City Centre","Yaletown–Roundhouse","Olympic Village","Broadway–City Hall","King Edward","Oakridge–41st Avenue","Langara–49th Avenue","Marine Drive","Bridgeport"]
+  };
+  const branches = {
+    EXPO: [
+      ["Columbia","Scott Road","Gateway","Surrey Central","King George"], // Fraser branch
+      ["Columbia","Sapperton","Braid","Lougheed Town Centre","Production Way–University"] // PWU branch
+    ],
+    MILL: [
+      ["Lougheed Town Centre","Burquitlam","Moody Centre","Inlet Centre","Coquitlam Central","Lincoln","Lafarge Lake–Douglas"] // Evergreen
+    ],
+    CAN: [
+      ["Bridgeport","Templeton","Sea Island Centre","YVR–Airport"],            // YVR
+      ["Bridgeport","Aberdeen","Lansdowne","Richmond–Brighouse"]               // Richmond
+    ]
+  };
+
+  // מפת קואורדינטות סכמטית לכל תחנה
+  const P = new Map();
+
+  // פונקציה לשיוך קואורדינטות לאורך גזע
+  function placeTrunk(lineId){
+    const y = baseY[lineId];
+    trunk[lineId].forEach((name, idx)=>{
+      const x = 80 + idx*gap;
+      // אם התחנה כבר קיימת (צומת משותפת) — נשמור ממוצע עדין כדי לקרב קווים
+      if (P.has(name)){
+        const old = P.get(name);
+        P.set(name, { x:(old.x+x)/2, y:(old.y+y)/2 });
+      } else {
+        P.set(name, { x, y });
+      }
+    });
   }
-  const dep = minutesFromDateTimeInputs();
-  const list = planCandidates(from, to, dep);
-  renderResults(list);
+  // הצבה לאורך גזע לשלושת הקווים
+  placeTrunk("EXPO"); placeTrunk("MILL"); placeTrunk("CAN");
+
+  // הצבת ענפים
+  function placeBranch(seq, lineId, dir="down"){ // dir: 'up'|'down'
+    const sign = (dir==="down")? +1 : -1;
+    const start = P.get(seq[0]);
+    let x = start.x, y = start.y;
+    for (let i=1; i<seq.length; i++){
+      x += gap*0.85;
+      y += sign*28; // נטייה קלה
+      const name = seq[i];
+      if (P.has(name)){
+        const old=P.get(name); P.set(name,{ x:(old.x+x)/2, y:(old.y+y)/2 });
+      } else {
+        P.set(name,{ x,y });
+      }
+    }
+  }
+
+  // Expo branches: אחד מעט "למטה", שני מעט "למעלה"
+  placeBranch(branches.EXPO[0],"EXPO","down"); // Scott Rd -> KG
+  placeBranch(branches.EXPO[1],"EXPO","up");   // Sapperton -> PWU
+  // Millennium branch (Evergreen) – מעט למעלה
+  placeBranch(branches.MILL[0],"MILL","up");
+  // Canada branches: YVR למטה, Richmond למעלה
+  placeBranch(branches.CAN[0],"CAN","down");
+  placeBranch(branches.CAN[1],"CAN","up");
+
+  // ========= ציור קווים =========
+  function drawLine(polyNames, cssClass, color){
+    const pts = polyNames.map(n=>P.get(n)).filter(Boolean);
+    if (pts.length<2) return;
+    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width','6');
+    path.setAttribute('class', cssClass);
+    path.setAttribute('stroke-linecap','round');
+    path.setAttribute('stroke-linejoin','round');
+    svg.appendChild(path);
+  }
+
+  // ציור גזעים
+  drawLine(trunk.EXPO, 'line-expo', LINE_META.EXPO.color);
+  drawLine(trunk.MILL, 'line-mill', LINE_META.MILL.color);
+  drawLine(trunk.CAN,  'line-can',  LINE_META.CAN.color);
+  // ציור ענפים
+  branches.EXPO.forEach(seq=> drawLine(seq,'line-expo',LINE_META.EXPO.color));
+  branches.MILL.forEach(seq=> drawLine(seq,'line-mill',LINE_META.MILL.color));
+  branches.CAN.forEach(seq=> drawLine(seq,'line-can', LINE_META.CAN.color));
+
+  // ========= ציור תחנות =========
+  for (const [name,pt] of P.entries()){
+    // נקודה
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y); c.setAttribute('r', 4.5);
+    c.setAttribute('class','station-node'); svg.appendChild(c);
+    // תווית (ימין/שמאל לפי מקום)
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', pt.x + 8);
+    t.setAttribute('y', pt.y - 8);
+    t.setAttribute('class', 'station-label');
+    t.textContent = name;
+    svg.appendChild(t);
+  }
+
+  // נשמור את המיקום הסכמטי לשימוש בהדגשת מסלולים
+  window.__SCHEMA_POINTS__ = P;
+}
+
+/* הדגשת מסלול על המפה */
+function highlightTripOnMap(trip){
+  if (!trip){ return; }
+  // הסר הדגשות קודמות
+  [...svg.querySelectorAll('.route-highlight')].forEach(el=>el.remove());
+
+  const P = window.__SCHEMA_POINTS__;
+  for (const leg of trip.legs){
+    const pts = leg.path.map(n => P.get(n)).filter(Boolean);
+    if (pts.length<2) continue;
+    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', leg.color);
+    path.setAttribute('stroke-width','9');
+    path.setAttribute('stroke-linecap','round');
+    path.setAttribute('stroke-linejoin','round');
+    path.setAttribute('opacity','0.9');
+    path.setAttribute('class','route-highlight');
+    svg.appendChild(path);
+  }
+}
+
+/* כפתורי המפה הכלליים */
+btnShowOnMap?.addEventListener('click', ()=>{
+  if (lastTrips.length){ highlightTripOnMap(lastTrips[0]); }
 });
-document.getElementById('swapBtn').addEventListener('click', ()=>{
-  const a = fromSel.value, b = toSel.value; fromSel.value=b; toSel.value=a;
-});
-document.getElementById('favBtn').addEventListener('click', ()=>{
-  saveFav(fromSel.value, toSel.value);
+btnResetMap?.addEventListener('click', ()=>{
+  [...svg.querySelectorAll('.route-highlight')].forEach(el=>el.remove());
 });
 
-/* אתחול */
+/* ===== אתחול ===== */
 populateStops(); loadFavs();
+drawNetwork(); // ציור רשת ראשוני
