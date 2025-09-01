@@ -37,17 +37,10 @@
     .card { background: white; border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.06); }
     .chip { display:inline-flex; align-items:center; gap:.5rem; padding:.25rem .6rem; border-radius:9999px; font-size:.75rem; font-weight:600; }
     .chip-dot { width:.6rem; height:.6rem; border-radius:9999px; display:inline-block; }
-    /* מפה סכמטית */
-    #schemaWrap { background: #fff; border: 1px solid rgba(2,6,23,.08); border-radius: 1rem; overflow: hidden; }
-    #schema { width: 100%; height: 520px; display: block; background: #FAFBFF; }
-    .svg-root { width: 100%; height: 100%; }
-    .station-node { fill:#fff; stroke:#0f172a; stroke-width:1.5; }
-    .station-label { font-size: 11px; fill:#0f172a; user-select:none; }
-    .line-expo { stroke:#0060A9; }
-    .line-mill { stroke:#FDB515; }
-    .line-can  { stroke:#00B7C3; }
-    .route-highlight { filter: drop-shadow(0 0 3px rgba(0,0,0,.25)); }
-    .map-toolbar button { white-space: nowrap; }
+    /* בלוק המפה */
+    #mapHost { background: #fff; border: 1px solid rgba(2,6,23,.08); border-radius: 1rem; overflow: hidden; }
+    #wikiSvgHolder svg { width: 100%; height: 100%; display: block; }
+    #overlay { pointer-events: none; }
   </style>
 </head>
 
@@ -58,7 +51,7 @@
       <img src="./icons/icon.svg" alt="" class="w-8 h-8" />
       <div class="flex flex-col">
         <h1 class="text-lg md:text-xl font-bold leading-tight">מחשבון מסלולים – TransLink SkyTrain (MVP)</h1>
-        <p class="text-xs md:text-sm text-white/80">עיצוב בהשראת צבעי TransLink: Expo, Millennium, Canada</p>
+        <p class="text-xs md:text-sm text-white/80">עיצוב בצבעי TransLink: Expo, Millennium, Canada</p>
       </div>
       <span class="ms-auto chip bg-white/10">PWA</span>
     </div>
@@ -134,14 +127,15 @@
     <!-- Map Card -->
     <section class="card p-4 md:p-6">
       <div class="flex items-center gap-3 mb-3">
-        <h2 class="text-base md:text-lg font-semibold">מפה סכמטית (SVG)</h2>
-        <span class="text-xs text-slate-500">קווים בצבעים רשמיים; המסלול הנבחר מסומן בעובי</span>
+        <h2 class="text-base md:text-lg font-semibold">מפה סכמטית (מבוססת ויקיפדיה)</h2>
+        <span class="text-xs text-slate-500">המסלול הנבחר מודגש מעל המפה</span>
       </div>
-      <div id="schemaWrap">
-        <div id="schema">
-          <!-- נבנה דינאמית ב-app.js -->
-          <svg id="svgRoot" class="svg-root" viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid meet"></svg>
-        </div>
+
+      <div id="mapHost" class="relative w-full h-[520px]">
+        <!-- כאן נטען ה-SVG הרשמי של ויקיפדיה -->
+        <div id="wikiSvgHolder" class="absolute inset-0"></div>
+        <!-- שכבת ההדגשה מעל המפה -->
+        <svg id="overlay" class="absolute inset-0 w-full h-full"></svg>
       </div>
     </section>
 
@@ -155,8 +149,14 @@
     </section>
   </main>
 
-  <footer class="max-w-5xl mx-auto px-4 pb-10 text-xs text-slate-500">
-    סכמת רשת SVG ידידותית ל-MVP. בהמשך נוכל לעבור למפת OSM/MapLibre או לנתיבי GeoJSON אמיתיים.
+  <footer class="max-w-5xl mx-auto px-4 pb-10 text-xs text-slate-500 space-y-2">
+    <p>סכמת רשת מדויקת (מבוסס SVG של ויקיפדיה). בהמשך נוכל לעבור גם לנתיבי GeoJSON אמיתיים או למפת OSM/MapLibre.</p>
+    <p>
+      Map base ©
+      <a href="https://commons.wikimedia.org/wiki/File:Vancouver_Skytrain_and_Seabus_Map.svg" target="_blank" rel="noopener">
+        Wikimedia Commons – “Vancouver Skytrain and Seabus Map.svg”
+      </a>, CC-BY-SA-4.0.
+    </p>
   </footer>
 
   <script src="./app.js"></script>
