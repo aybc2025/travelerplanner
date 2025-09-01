@@ -1,0 +1,15 @@
+{
+  "name": "מחשבון מסלולים – מטרו ונקובר (MVP)",
+  "short_name": "מסלולים MVP",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0060A9",
+  "background_color": "#F8FAFF",
+  "icons": [
+    { "src": "icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "maskable any" },
+    { "src": "icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" }
+  ]
+}
