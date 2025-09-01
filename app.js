@@ -1,8 +1,9 @@
 /* =========================
    MVP סטטי — SkyTrain בלבד
    =========================
-   - מסלולים: גרף, עד 2 החלפות, headway+שעות (כמו בגרסה הקודמת)
-   - מפה סכמטית: קואורדינטות ידניות מותאמות לסכמה הרשמית + מניעת חפיפת תוויות
+   - מסלולים: גרף, עד 2 החלפות, headway+שעות
+   - מפה סכמטית משופרת: Canada אנכי, Millennium צפונית ל-Expo, Expo מערב→מזרח,
+     + מניעת חפיפת תוויות.
 */
 
 /* ===== קווים וזמני שירות ===== */
@@ -30,7 +31,7 @@ const toHHMM = mins => `${pad2(Math.floor((mins%1440)/60))}:${pad2(mins%60)}`;
 /* ===== גרף תחנות (קשתות) ===== */
 function E(a,b,mins,line){ return {a,b,mins,line}; }
 const EDGES = [
-  // EXPO: Waterfront -> Columbia
+  // EXPO: Waterfront -> Columbia (גזע מערב→מזרח)
   E("Waterfront","Burrard",2,"EXPO"), E("Burrard","Granville",2,"EXPO"),
   E("Granville","Stadium–Chinatown",3,"EXPO"), E("Stadium–Chinatown","Main Street–Science World",3,"EXPO"),
   E("Main Street–Science World","Commercial–Broadway",4,"EXPO"),
@@ -39,13 +40,14 @@ const EDGES = [
   E("Patterson","Metrotown",3,"EXPO"), E("Metrotown","Royal Oak",3,"EXPO"),
   E("Royal Oak","Edmonds",3,"EXPO"), E("Edmonds","22nd Street",3,"EXPO"),
   E("22nd Street","New Westminster",2,"EXPO"), E("New Westminster","Columbia",2,"EXPO"),
-  // EXPO לענף King George
+  // EXPO לענף King George (דרום-מזרח)
   E("Columbia","Scott Road",2,"EXPO"), E("Scott Road","Gateway",3,"EXPO"),
   E("Gateway","Surrey Central",3,"EXPO"), E("Surrey Central","King George",2,"EXPO"),
-  // EXPO לענף Production Way
+  // EXPO לענף Production Way (צפון-מזרח)
   E("Columbia","Sapperton",3,"EXPO"), E("Sapperton","Braid",3,"EXPO"),
   E("Braid","Lougheed Town Centre",4,"EXPO"), E("Lougheed Town Centre","Production Way–University",2,"EXPO"),
-  // MILLENNIUM
+
+  // MILLENNIUM (כולו צפונית ל-Expo)
   E("VCC–Clark","Commercial–Broadway",3,"MILL"), E("Commercial–Broadway","Renfrew",2,"MILL"),
   E("Renfrew","Rupert",2,"MILL"), E("Rupert","Gilmore",3,"MILL"),
   E("Gilmore","Brentwood Town Centre",3,"MILL"), E("Brentwood Town Centre","Holdom",2,"MILL"),
@@ -54,18 +56,16 @@ const EDGES = [
   E("Lougheed Town Centre","Burquitlam",3,"MILL"), E("Burquitlam","Moody Centre",4,"MILL"),
   E("Moody Centre","Inlet Centre",2,"MILL"), E("Inlet Centre","Coquitlam Central",2,"MILL"),
   E("Coquitlam Central","Lincoln",2,"MILL"), E("Lincoln","Lafarge Lake–Douglas",2,"MILL"),
-  // CANADA
+
+  // CANADA (אנכי צפון↕דרום)
   E("Waterfront","Vancouver City Centre",2,"CAN"), E("Vancouver City Centre","Yaletown–Roundhouse",2,"CAN"),
   E("Yaletown–Roundhouse","Olympic Village",3,"CAN"), E("Olympic Village","Broadway–City Hall",3,"CAN"),
   E("Broadway–City Hall","King Edward",3,"CAN"), E("King Edward","Oakridge–41st Avenue",3,"CAN"),
   E("Oakridge–41st Avenue","Langara–49th Avenue",3,"CAN"), E("Langara–49th Avenue","Marine Drive",3,"CAN"),
   E("Marine Drive","Bridgeport",4,"CAN"),
-  // Canada ל-YVR
-  E("Bridgeport","Templeton",3,"CAN"), E("Templeton","Sea Island Centre",2,"CAN"),
-  E("Sea Island Centre","YVR–Airport",2,"CAN"),
-  // Canada ל-Richmond
-  E("Bridgeport","Aberdeen",3,"CAN"), E("Aberdeen","Lansdowne",2,"CAN"),
-  E("Lansdowne","Richmond–Brighouse",2,"CAN"),
+  // Canada הסתעפויות מ-Bridgeport
+  E("Bridgeport","Templeton",3,"CAN"), E("Templeton","Sea Island Centre",2,"CAN"), E("Sea Island Centre","YVR–Airport",2,"CAN"),
+  E("Bridgeport","Aberdeen",3,"CAN"), E("Aberdeen","Lansdowne",2,"CAN"), E("Lansdowne","Richmond–Brighouse",2,"CAN"),
 ];
 
 const LINE_STOPS = { EXPO:new Set(), MILL:new Set(), CAN:new Set() };
@@ -242,54 +242,64 @@ function minutesFromDateTimeInputs(){
 
 let lastTrips = [];
 
-/* ====== ציור מפה סכמטית לפי קואורדינטות ידניות ====== */
+/* ====== מפה סכמטית: מיקומים ידניים ====== */
 const svg = document.getElementById('svgRoot');
-// viewBox ב-index.html: 0 0 1200 520
-// מיקומים הותאמו לסכמה שהעלית (יחסית ולא מדויקים גאוגרפית)
+// viewBox: 0 0 1200 520
+// Waterfront מרכז משותף. Canada אנכי ב-x ≈ 280. Expo אופקי סביב y≈200. Millennium צפונית סביב y≈130.
 const STATION_POS = {
-  // Waterfront צומת מרכזית
-  "Waterfront": {x:120, y:120},
-  // Expo לכיוון Commercial ואחר כך מזרחה
-  "Burrard":{x:180,y:80}, "Granville":{x:240,y:80}, "Stadium–Chinatown":{x:320,y:95},
-  "Main Street–Science World":{x:380,y:120}, "Commercial–Broadway":{x:460,y:150},
-  "Nanaimo":{x:540,y:150}, "29th Avenue":{x:620,y:150}, "Joyce–Collingwood":{x:700,y:150},
-  "Patterson":{x:780,y:150}, "Metrotown":{x:860,y:150}, "Royal Oak":{x:940,y:150},
-  "Edmonds":{x:1020,y:150}, "22nd Street":{x:1100,y:150}, "New Westminster":{x:1180,y:150},
-  "Columbia":{x:1260,y:150}, // יוצא מה-viewBox, לכן נורמליזציה בהמשך
-  // Expo לענף קינג ג׳ורג׳ (יורד דרום-מזרח)
-  "Scott Road":{x:1320,y:170}, "Gateway":{x:1380,y:190}, "Surrey Central":{x:1440,y:210}, "King George":{x:1500,y:230},
-  // Expo לענף PWU (עולה צפון-מזרח)
-  "Sapperton":{x:1260,y:120}, "Braid":{x:1320,y:100}, "Lougheed Town Centre":{x:1380,y:90}, "Production Way–University":{x:1440,y:80},
-  // Millennium גזע (מערב←מזרח עד Lougheed), ואז Evergreen צפונה-מזרח
-  "VCC–Clark":{x:420,y:230}, "Renfrew":{x:520,y:230}, "Rupert":{x:580,y:230}, "Gilmore":{x:640,y:230},
-  "Brentwood Town Centre":{x:700,y:230}, "Holdom":{x:760,y:230}, "Sperling–Burnaby Lake":{x:820,y:230}, "Lake City Way":{x:880,y:230},
-  "Burquitlam":{x:1420,y:120}, "Moody Centre":{x:1480,y:110}, "Inlet Centre":{x:1540,y:108}, "Coquitlam Central":{x:1600,y:112},
-  "Lincoln":{x:1660,y:118}, "Lafarge Lake–Douglas":{x:1720,y:130},
-  // Canada Line דרומה עד Bridgeport ואז הסתעפות
-  "Vancouver City Centre":{x:180,y:180}, "Yaletown–Roundhouse":{x:240,y:210},
-  "Olympic Village":{x:300,y:240}, "Broadway–City Hall":{x:360,y:260}, "King Edward":{x:420,y:280},
-  "Oakridge–41st Avenue":{x:480,y:300}, "Langara–49th Avenue":{x:540,y:320}, "Marine Drive":{x:600,y:340}, "Bridgeport":{x:660,y:360},
-  // YVR (יורד שמאלה)
-  "Templeton":{x:700,y:390}, "Sea Island Centre":{x:740,y:415}, "YVR–Airport":{x:780,y:440},
-  // Richmond (עולה ימינה)
-  "Aberdeen":{x:700,y:330}, "Lansdowne":{x:740,y:305}, "Richmond–Brighouse":{x:780,y:280}
+  // Waterfront + Canada (אנכי)
+  "Waterfront": {x:280, y:100},
+  "Vancouver City Centre": {x:280, y:140},
+  "Yaletown–Roundhouse":   {x:280, y:180},
+  "Olympic Village":       {x:280, y:220},
+  "Broadway–City Hall":    {x:280, y:260},
+  "King Edward":           {x:280, y:300},
+  "Oakridge–41st Avenue":  {x:280, y:340},
+  "Langara–49th Avenue":   {x:280, y:380},
+  "Marine Drive":          {x:280, y:420},
+  "Bridgeport":            {x:280, y:460},
+  // הסתעפויות Canada
+  "Templeton":             {x:240, y:490},
+  "Sea Island Centre":     {x:210, y:515},
+  "YVR–Airport":           {x:180, y:540},
+  "Aberdeen":              {x:320, y:440},
+  "Lansdowne":             {x:360, y:420},
+  "Richmond–Brighouse":    {x:400, y:400},
+
+  // Expo (מערב→מזרח) סביב y≈200
+  "Burrard":{x:220,y:170}, "Granville":{x:260,y:170},
+  "Stadium–Chinatown":{x:320,y:185}, "Main Street–Science World":{x:380,y:200},
+  "Commercial–Broadway":{x:460,y:210}, "Nanaimo":{x:520,y:210}, "29th Avenue":{x:580,y:210},
+  "Joyce–Collingwood":{x:640,y:210}, "Patterson":{x:700,y:210}, "Metrotown":{x:760,y:210},
+  "Royal Oak":{x:820,y:210}, "Edmonds":{x:880,y:210}, "22nd Street":{x:940,y:210},
+  "New Westminster":{x:1000,y:210}, "Columbia":{x:1060,y:210},
+  // ענף King George (יורד דרום-מזרח)
+  "Scott Road":{x:1120,y:235}, "Gateway":{x:1180,y:260}, "Surrey Central":{x:1240,y:285}, "King George":{x:1300,y:310},
+  // ענף Production Way (עולה צפון-מזרח)
+  "Sapperton":{x:1060,y:180}, "Braid":{x:1120,y:165}, "Lougheed Town Centre":{x:1180,y:155}, "Production Way–University":{x:1240,y:145},
+
+  // Millennium (צפונית ל-Expo) סביב y≈130
+  "VCC–Clark":{x:420,y:140}, "Renfrew":{x:520,y:140}, "Rupert":{x:560,y:140}, "Gilmore":{x:600,y:140},
+  "Brentwood Town Centre":{x:660,y:140}, "Holdom":{x:720,y:140}, "Sperling–Burnaby Lake":{x:780,y:140},
+  "Lake City Way":{x:840,y:140}, /* כבר מוגדר PWU */ "Burquitlam":{x:1240,y:125}, "Moody Centre":{x:1300,y:120},
+  "Inlet Centre":{x:1360,y:118}, "Coquitlam Central":{x:1420,y:120}, "Lincoln":{x:1480,y:125}, "Lafarge Lake–Douglas":{x:1540,y:135}
 };
 
-// נביא הכל לטווח ה-viewBox (1200x520)
+// נרמול עדין אם יש חריגות מחוץ ל-viewBox
 (function normalizePositions(){
-  // מצא xmin/xmax – אם יש נקודות מחוץ ל-1200 נמתח בקנה מידה
   let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
   for (const p of Object.values(STATION_POS)){ xmin=Math.min(xmin,p.x); xmax=Math.max(xmax,p.x); ymin=Math.min(ymin,p.y); ymax=Math.max(ymax,p.y); }
-  const sx = 1100/(xmax-xmin); const sy = 440/(ymax-ymin);
+  const margin = 40;
+  const sx = (1200-2*margin)/(xmax-xmin);
+  const sy = (520-2*margin)/(ymax-ymin);
   const k = Math.min(sx,sy);
-  const ox = 50 - xmin*k; const oy = 40 - ymin*k;
+  const ox = margin - xmin*k; const oy = margin - ymin*k;
   for (const p of Object.values(STATION_POS)){ p.x = p.x*k+ox; p.y = p.y*k+oy; }
 })();
 
 /* ציור הרשת */
 function drawNetwork(){
   svg.innerHTML='';
-  // קווים לפי סדר: גזע/ענפים
   const trunk = {
     EXPO: ["Waterfront","Burrard","Granville","Stadium–Chinatown","Main Street–Science World","Commercial–Broadway","Nanaimo","29th Avenue","Joyce–Collingwood","Patterson","Metrotown","Royal Oak","Edmonds","22nd Street","New Westminster","Columbia"],
     MILL: ["VCC–Clark","Commercial–Broadway","Renfrew","Rupert","Gilmore","Brentwood Town Centre","Holdom","Sperling–Burnaby Lake","Lake City Way","Production Way–University","Lougheed Town Centre"],
@@ -303,7 +313,7 @@ function drawNetwork(){
     MILL: [
       ["Lougheed Town Centre","Burquitlam","Moody Centre","Inlet Centre","Coquitlam Central","Lincoln","Lafarge Lake–Douglas"]
     ],
-    CAN: [
+  CAN: [
       ["Bridgeport","Templeton","Sea Island Centre","YVR–Airport"],
       ["Bridgeport","Aberdeen","Lansdowne","Richmond–Brighouse"]
     ]
@@ -332,80 +342,44 @@ function drawNetwork(){
   branches.MILL.forEach(seq=>drawPolyline(seq,LINE_META.MILL.color,'line-mill'));
   branches.CAN.forEach(seq=>drawPolyline(seq,LINE_META.CAN.color,'line-can'));
 
-  // ציור תחנות + תוויות עם מניעת חפיפה
-  const placed = []; // בוקסות שכבר שמנו: {x,y,w,h}
+  // תחנות + תוויות בלי חפיפות
+  const placed = [];
   for (const [name,pt] of Object.entries(STATION_POS)){
-    // נקודה
     const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y); c.setAttribute('r', 4.5);
     c.setAttribute('fill','#fff'); c.setAttribute('stroke','#0f172a'); c.setAttribute('stroke-width','1.5');
     svg.appendChild(c);
-    // תווית
     placeLabelNoOverlap(name, pt, placed);
   }
-
   window.__SCHEMA_POINTS__ = STATION_POS;
 }
 
-/* מניעת חפיפת תוויות – ניסיון בכמה עמדות עד שאין חפיפה */
+/* מניעת חפיפת תוויות */
 function placeLabelNoOverlap(name, pt, placed){
   const positions = [
-    {dx: 8,  dy:-8},   // East, up
-    {dx: 8,  dy: 14},  // East, down
-    {dx:-8,  dy:-8, anchor:'end'},  // West, up
-    {dx:-8,  dy: 14, anchor:'end'}, // West, down
-    {dx: 0,  dy:-14, anchor:'middle'}, // North
-    {dx: 0,  dy: 22, anchor:'middle'}  // South
+    {dx: 8,  dy:-8}, {dx: 8,  dy: 14},
+    {dx:-8,  dy:-8, anchor:'end'}, {dx:-8,  dy: 14, anchor:'end'},
+    {dx: 0,  dy:-14, anchor:'middle'}, {dx: 0,  dy: 22, anchor:'middle'}
   ];
   const g = document.createElementNS('http://www.w3.org/2000/svg','g');
   svg.appendChild(g);
-
   for (const pos of positions){
     g.innerHTML = '';
-    // הילה לבנה
     const halo = document.createElementNS('http://www.w3.org/2000/svg','text');
-    halo.setAttribute('x', pt.x + pos.dx);
-    halo.setAttribute('y', pt.y + pos.dy);
-    halo.setAttribute('font-size','11');
-    halo.setAttribute('font-family','system-ui, -apple-system, "Segoe UI", Roboto, Arial');
-    halo.setAttribute('stroke','#fff');
-    halo.setAttribute('stroke-width','3');
-    halo.setAttribute('paint-order','stroke');
-    if (pos.anchor) halo.setAttribute('text-anchor', pos.anchor);
-    halo.textContent = name;
-    g.appendChild(halo);
-
+    halo.setAttribute('x', pt.x + pos.dx); halo.setAttribute('y', pt.y + pos.dy);
+    halo.setAttribute('font-size','11'); halo.setAttribute('stroke','#fff'); halo.setAttribute('stroke-width','3');
+    halo.setAttribute('paint-order','stroke'); if (pos.anchor) halo.setAttribute('text-anchor', pos.anchor); halo.textContent = name; g.appendChild(halo);
     const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-    t.setAttribute('x', pt.x + pos.dx);
-    t.setAttribute('y', pt.y + pos.dy);
-    t.setAttribute('font-size','11');
-    t.setAttribute('fill','#0f172a');
-    t.setAttribute('font-family','system-ui, -apple-system, "Segoe UI", Roboto, Arial');
+    t.setAttribute('x', pt.x + pos.dx); t.setAttribute('y', pt.y + pos.dy);
+    t.setAttribute('font-size','11'); t.setAttribute('fill','#0f172a');
     if (pos.anchor) t.setAttribute('text-anchor', pos.anchor);
-    t.textContent = name;
-    g.appendChild(t);
-
-    // בדיקת חפיפה
-    const bb = g.getBBox(); // בוקס של הטקסט (כולל הילה)
-    const box = {x:bb.x, y:bb.y, w:bb.width, h:bb.height};
-    if (!intersectsAny(box, placed)){
-      placed.push(box);
-      return; // הונח בהצלחה
-    }
+    t.textContent = name; g.appendChild(t);
+    const bb = g.getBBox(); const box = {x:bb.x, y:bb.y, w:bb.width, h:bb.height};
+    if (!intersectsAny(box, placed)){ placed.push(box); return; }
   }
-
-  // אם כל הניסיונות חופפים — משאירים במקום הראשון (טוב דיו ל-MVP)
 }
-
-function intersectsAny(box, arr){
-  for (const b of arr){
-    if (rectsIntersect(box,b)) return true;
-  }
-  return false;
-}
-function rectsIntersect(a,b){
-  return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y);
-}
+function intersectsAny(box, arr){ for (const b of arr){ if (rectsIntersect(box,b)) return true; } return false; }
+function rectsIntersect(a,b){ return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y); }
 
 /* הדגשת מסלול על המפה */
 function highlightTripOnMap(trip){
@@ -484,7 +458,7 @@ function renderResults(list){
 function loadFavs(){
   favsEl.innerHTML='';
   const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!favs.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
+  if (!פavs?.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
   for (const f of favs){
     const b=document.createElement('button');
     b.className='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
