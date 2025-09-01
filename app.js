@@ -1,37 +1,74 @@
-/* =========================
-   MVP סטטי — SkyTrain בלבד
-   =========================
-   - מסלולים: גרף, עד 2 החלפות, headway+שעות
-   - מפה סכמטית משופרת: Canada אנכי, Millennium צפונית ל-Expo, Expo מערב→מזרח,
-     + מניעת חפיפת תוויות.
-*/
+/* ===========================================================
+   SkyTrain MVP (Expo, Millennium, Canada) — גרסה מלאה
+   - מסלולים: גרף, עד 2 החלפות, headway+שעות שירות, תיקון תדירויות
+   - מפה סכמטית: טעינת SVG מוויקיפדיה, חילוץ x,y לכל תחנה, הדגשת מסלול
+   - UI: תוצאות, מועדפים, מפה
+=========================================================== */
 
 /* ===== קווים וזמני שירות ===== */
 const LINE_META = {
-  EXPO: { id:"EXPO", name:"Expo Line", color:"#0060A9",
-    headways:[{start:"05:00",end:"06:59",mins:8},{start:"07:00",end:"09:59",mins:4},{start:"10:00",end:"15:59",mins:6},{start:"16:00",end:"18:59",mins:4},{start:"19:00",end:"25:15",mins:8}],
-    firstTrain:"05:00", lastTrain:"25:15"
+  EXPO: {
+    id: "EXPO", name: "Expo Line", color: "#0060A9",
+    headways: [
+      { start: "05:00", end: "06:59", mins: 8 },
+      { start: "07:00", end: "09:59", mins: 4 },
+      { start: "10:00", end: "15:59", mins: 6 },
+      { start: "16:00", end: "18:59", mins: 4 },
+      { start: "19:00", end: "25:15", mins: 8 } // עד 01:15
+    ],
+    firstTrain: "05:00", lastTrain: "25:15"
   },
-  MILL: { id:"MILL", name:"Millennium Line", color:"#FDB515",
-    headways:[{start:"05:00",end:"06:59",mins:8},{start:"07:00",end:"09:59",mins:5},{start:"10:00",end:"15:59",mins:6},{start:"16:00",end:"18:59",mins:5},{start:"19:00",end:"25:15",mins:8}],
-    firstTrain:"05:00", lastTrain:"25:15"
+  MILL: {
+    id: "MILL", name: "Millennium Line", color: "#FDB515",
+    headways: [
+      { start: "05:00", end: "06:59", mins: 8 },
+      { start: "07:00", end: "09:59", mins: 5 },
+      { start: "10:00", end: "15:59", mins: 6 },
+      { start: "16:00", end: "18:59", mins: 5 },
+      { start: "19:00", end: "25:15", mins: 8 }
+    ],
+    firstTrain: "05:00", lastTrain: "25:15"
   },
-  CAN:  { id:"CAN",  name:"Canada Line", color:"#00B7C3",
-    headways:[{start:"05:00",end:"06:59",mins:6},{start:"07:00",end:"09:59",mins:4},{start:"10:00",end:"15:59",mins:5},{start:"16:00",end:"18:59",mins:4},{start:"19:00",end:"25:15",mins:6}],
-    firstTrain:"05:00", lastTrain:"25:15"
+  CAN: {
+    id: "CAN", name: "Canada Line", color: "#00B7C3",
+    headways: [
+      { start: "05:00", end: "06:59", mins: 6 },
+      { start: "07:00", end: "09:59", mins: 4 },
+      { start: "10:00", end: "15:59", mins: 5 },
+      { start: "16:00", end: "18:59", mins: 4 },
+      { start: "19:00", end: "25:15", mins: 6 }
+    ],
+    firstTrain: "05:00", lastTrain: "25:15"
   }
 };
 
-/* עזרי זמן */
+/* ===== עזרי זמן ===== */
 const pad2 = n => String(n).padStart(2,"0");
-function toMinutes(hhmm){ const [h,m]=hhmm.split(":").map(Number); return h*60+m; }
 function toMinutesWrap(hhmm){ const [h,m]=hhmm.split(":").map(Number); return ((h%24)*60+m)+(h>=24?1440:0); }
 const toHHMM = mins => `${pad2(Math.floor((mins%1440)/60))}:${pad2(mins%60)}`;
+function headwayFor(lineId, depMins){
+  const meta = LINE_META[lineId]; const t = depMins % 1440; const t2 = (depMins<1440)? t : t+1440;
+  for (const w of meta.headways){
+    const s = toMinutesWrap(w.start), e = toMinutesWrap(w.end);
+    if (s<=t2 && t2<=e) return w.mins;
+  }
+  return meta.headways.at(-1).mins;
+}
+function scheduleDeparture(lineId, earliest){
+  const meta = LINE_META[lineId];
+  const first = toMinutesWrap(meta.firstTrain), last = toMinutesWrap(meta.lastTrain);
+  let depart = Math.max(earliest, first);
+  if (depart > last) return null;
+  const hw = headwayFor(lineId, depart);
+  const offset = (depart - first) % hw;
+  if (offset !== 0) depart += (hw - offset);
+  return depart <= last ? depart : null;
+}
 
 /* ===== גרף תחנות (קשתות) ===== */
 function E(a,b,mins,line){ return {a,b,mins,line}; }
 const EDGES = [
-  // EXPO: Waterfront -> Columbia (גזע מערב→מזרח)
+  // EXPO: Waterfront -> Columbia
   E("Waterfront","Burrard",2,"EXPO"), E("Burrard","Granville",2,"EXPO"),
   E("Granville","Stadium–Chinatown",3,"EXPO"), E("Stadium–Chinatown","Main Street–Science World",3,"EXPO"),
   E("Main Street–Science World","Commercial–Broadway",4,"EXPO"),
@@ -40,14 +77,13 @@ const EDGES = [
   E("Patterson","Metrotown",3,"EXPO"), E("Metrotown","Royal Oak",3,"EXPO"),
   E("Royal Oak","Edmonds",3,"EXPO"), E("Edmonds","22nd Street",3,"EXPO"),
   E("22nd Street","New Westminster",2,"EXPO"), E("New Westminster","Columbia",2,"EXPO"),
-  // EXPO לענף King George (דרום-מזרח)
+  // EXPO לענף King George
   E("Columbia","Scott Road",2,"EXPO"), E("Scott Road","Gateway",3,"EXPO"),
   E("Gateway","Surrey Central",3,"EXPO"), E("Surrey Central","King George",2,"EXPO"),
-  // EXPO לענף Production Way (צפון-מזרח)
+  // EXPO לענף Production Way
   E("Columbia","Sapperton",3,"EXPO"), E("Sapperton","Braid",3,"EXPO"),
   E("Braid","Lougheed Town Centre",4,"EXPO"), E("Lougheed Town Centre","Production Way–University",2,"EXPO"),
-
-  // MILLENNIUM (כולו צפונית ל-Expo)
+  // MILLENNIUM
   E("VCC–Clark","Commercial–Broadway",3,"MILL"), E("Commercial–Broadway","Renfrew",2,"MILL"),
   E("Renfrew","Rupert",2,"MILL"), E("Rupert","Gilmore",3,"MILL"),
   E("Gilmore","Brentwood Town Centre",3,"MILL"), E("Brentwood Town Centre","Holdom",2,"MILL"),
@@ -56,14 +92,12 @@ const EDGES = [
   E("Lougheed Town Centre","Burquitlam",3,"MILL"), E("Burquitlam","Moody Centre",4,"MILL"),
   E("Moody Centre","Inlet Centre",2,"MILL"), E("Inlet Centre","Coquitlam Central",2,"MILL"),
   E("Coquitlam Central","Lincoln",2,"MILL"), E("Lincoln","Lafarge Lake–Douglas",2,"MILL"),
-
-  // CANADA (אנכי צפון↕דרום)
+  // CANADA (אנכי, עם הסתעפויות)
   E("Waterfront","Vancouver City Centre",2,"CAN"), E("Vancouver City Centre","Yaletown–Roundhouse",2,"CAN"),
   E("Yaletown–Roundhouse","Olympic Village",3,"CAN"), E("Olympic Village","Broadway–City Hall",3,"CAN"),
   E("Broadway–City Hall","King Edward",3,"CAN"), E("King Edward","Oakridge–41st Avenue",3,"CAN"),
   E("Oakridge–41st Avenue","Langara–49th Avenue",3,"CAN"), E("Langara–49th Avenue","Marine Drive",3,"CAN"),
   E("Marine Drive","Bridgeport",4,"CAN"),
-  // Canada הסתעפויות מ-Bridgeport
   E("Bridgeport","Templeton",3,"CAN"), E("Templeton","Sea Island Centre",2,"CAN"), E("Sea Island Centre","YVR–Airport",2,"CAN"),
   E("Bridgeport","Aberdeen",3,"CAN"), E("Aberdeen","Lansdowne",2,"CAN"), E("Lansdowne","Richmond–Brighouse",2,"CAN"),
 ];
@@ -80,30 +114,10 @@ for (const {a,b,mins,line} of EDGES) {
 const ALL_STOPS = [...new Set(Object.values(LINE_STOPS).flatMap(s => [...s]))].sort((a,b)=>a.localeCompare(b,'he'));
 const TRANSFER_HUBS = new Set(["Waterfront","Commercial–Broadway","Production Way–University","Lougheed Town Centre","Columbia"]);
 
-/* ===== שעות/תדירויות ===== */
-function headwayFor(lineId, depMins){
-  const meta = LINE_META[lineId];
-  const t = depMins % 1440;
-  const t2 = (depMins<1440)? t : t+1440;
-  for (const w of meta.headways){
-    const s = toMinutesWrap(w.start), e = toMinutesWrap(w.end);
-    if (s<=t2 && t2<=e) return w.mins;
-  }
-  return meta.headways.at(-1).mins;
-}
-function scheduleDeparture(lineId, earliest){
-  const meta = LINE_META[lineId];
-  const first = toMinutesWrap(meta.firstTrain);
-  const last  = toMinutesWrap(meta.lastTrain);
-  let depart = Math.max(earliest, first);
-  if (depart>last) return null;
-  const hw = headwayFor(lineId, depart);
-  const offset = (depart - first) % hw;
-  if (offset !== 0) depart += (hw - offset);
-  return depart<=last ? depart : null;
-}
+/* ===== תכנון מסלולים ===== */
+const LINES_ORDER = ["EXPO","MILL","CAN"];
+const TRANSFER_MIN = 3;
 
-/* ===== קיצור דרך: דייקסטרה לקו יחיד ===== */
 function shortestOnLine(lineId, from, to){
   if (!LINE_STOPS[lineId].has(from) || !LINE_STOPS[lineId].has(to)) return null;
   const adj = GRAPH_BY_LINE[lineId];
@@ -127,9 +141,6 @@ function shortestOnLine(lineId, from, to){
   return { mins: dist.get(to), path };
 }
 
-/* ===== בניית חלופות ===== */
-const LINES_ORDER = ["EXPO","MILL","CAN"];
-const TRANSFER_MIN = 3;
 function intersection(aSet,bSet){ const out=[]; for (const x of aSet) if (bSet.has(x)) out.push(x); return out; }
 
 function planCandidates(from, to, depMins){
@@ -209,7 +220,7 @@ function planCandidates(from, to, depMins){
   return [...uniq.values()].sort((a,b)=>(a.arrive-b.arrive)||(a.transfers-b.transfers)).slice(0,3);
 }
 
-/* ====== UI ====== */
+/* ===== DOM ===== */
 const fromSel = document.getElementById('fromStop');
 const toSel   = document.getElementById('toStop');
 const depTime = document.getElementById('depTime');
@@ -219,7 +230,9 @@ const favBtn = document.getElementById('favBtn');
 const favsEl = document.getElementById('favs');
 const btnShowOnMap = document.getElementById('btnShowOnMap');
 const btnResetMap  = document.getElementById('btnResetMap');
+const overlay = document.getElementById("overlay");
 
+/* ===== טפסים/ברירת מחדל ===== */
 function populateStops(){
   for (const s of ALL_STOPS){
     const o1=document.createElement('option'); o1.value=s; o1.textContent=s;
@@ -227,11 +240,9 @@ function populateStops(){
     fromSel.appendChild(o1); toSel.appendChild(o2);
   }
   fromSel.value="Waterfront"; toSel.value="Commercial–Broadway";
-  const now = new Date();
-  depDate.valueAsDate=now;
+  const now = new Date(); depDate.valueAsDate=now;
   depTime.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 }
-
 function minutesFromDateTimeInputs(){
   const d = depDate.value? new Date(depDate.value) : new Date();
   const [hh,mm] = (depTime.value || "00:00").split(':').map(Number);
@@ -240,188 +251,36 @@ function minutesFromDateTimeInputs(){
   return mins < 180 ? mins+1440 : mins; // תמיכה עד 01:15
 }
 
+/* ===== מועדפים ===== */
+function loadFavs(){
+  favsEl.innerHTML = '';
+  const favs = JSON.parse(localStorage.getItem('mvpfavs') || '[]');
+  if (!Array.isArray(favs) || favs.length === 0){
+    favsEl.innerHTML = `<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`;
+    return;
+  }
+  for (const f of favs){
+    const b = document.createElement('button');
+    b.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
+    b.textContent = `⭐ ${f.from} → ${f.to}`;
+    b.addEventListener('click', ()=>{
+      fromSel.value = f.from; toSel.value = f.to;
+      document.getElementById('tripForm').dispatchEvent(new Event('submit'));
+    });
+    favsEl.appendChild(b);
+  }
+}
+function saveFav(from, to){
+  const favs = JSON.parse(localStorage.getItem('mvpfavs') || '[]');
+  if (!favs.find(x => x.from === from && x.to === to)){
+    favs.push({ from, to });
+    localStorage.setItem('mvpfavs', JSON.stringify(favs));
+    loadFavs();
+  }
+}
+
+/* ===== תוצאות ===== */
 let lastTrips = [];
-
-/* ====== מפה סכמטית: מיקומים ידניים ====== */
-const svg = document.getElementById('svgRoot');
-// viewBox: 0 0 1200 520
-// Waterfront מרכז משותף. Canada אנכי ב-x ≈ 280. Expo אופקי סביב y≈200. Millennium צפונית סביב y≈130.
-const STATION_POS = {
-  // Waterfront + Canada (אנכי)
-  "Waterfront": {x:280, y:100},
-  "Vancouver City Centre": {x:280, y:140},
-  "Yaletown–Roundhouse":   {x:280, y:180},
-  "Olympic Village":       {x:280, y:220},
-  "Broadway–City Hall":    {x:280, y:260},
-  "King Edward":           {x:280, y:300},
-  "Oakridge–41st Avenue":  {x:280, y:340},
-  "Langara–49th Avenue":   {x:280, y:380},
-  "Marine Drive":          {x:280, y:420},
-  "Bridgeport":            {x:280, y:460},
-  // הסתעפויות Canada
-  "Templeton":             {x:240, y:490},
-  "Sea Island Centre":     {x:210, y:515},
-  "YVR–Airport":           {x:180, y:540},
-  "Aberdeen":              {x:320, y:440},
-  "Lansdowne":             {x:360, y:420},
-  "Richmond–Brighouse":    {x:400, y:400},
-
-  // Expo (מערב→מזרח) סביב y≈200
-  "Burrard":{x:220,y:170}, "Granville":{x:260,y:170},
-  "Stadium–Chinatown":{x:320,y:185}, "Main Street–Science World":{x:380,y:200},
-  "Commercial–Broadway":{x:460,y:210}, "Nanaimo":{x:520,y:210}, "29th Avenue":{x:580,y:210},
-  "Joyce–Collingwood":{x:640,y:210}, "Patterson":{x:700,y:210}, "Metrotown":{x:760,y:210},
-  "Royal Oak":{x:820,y:210}, "Edmonds":{x:880,y:210}, "22nd Street":{x:940,y:210},
-  "New Westminster":{x:1000,y:210}, "Columbia":{x:1060,y:210},
-  // ענף King George (יורד דרום-מזרח)
-  "Scott Road":{x:1120,y:235}, "Gateway":{x:1180,y:260}, "Surrey Central":{x:1240,y:285}, "King George":{x:1300,y:310},
-  // ענף Production Way (עולה צפון-מזרח)
-  "Sapperton":{x:1060,y:180}, "Braid":{x:1120,y:165}, "Lougheed Town Centre":{x:1180,y:155}, "Production Way–University":{x:1240,y:145},
-
-  // Millennium (צפונית ל-Expo) סביב y≈130
-  "VCC–Clark":{x:420,y:140}, "Renfrew":{x:520,y:140}, "Rupert":{x:560,y:140}, "Gilmore":{x:600,y:140},
-  "Brentwood Town Centre":{x:660,y:140}, "Holdom":{x:720,y:140}, "Sperling–Burnaby Lake":{x:780,y:140},
-  "Lake City Way":{x:840,y:140}, /* כבר מוגדר PWU */ "Burquitlam":{x:1240,y:125}, "Moody Centre":{x:1300,y:120},
-  "Inlet Centre":{x:1360,y:118}, "Coquitlam Central":{x:1420,y:120}, "Lincoln":{x:1480,y:125}, "Lafarge Lake–Douglas":{x:1540,y:135}
-};
-
-// נרמול עדין אם יש חריגות מחוץ ל-viewBox
-(function normalizePositions(){
-  let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
-  for (const p of Object.values(STATION_POS)){ xmin=Math.min(xmin,p.x); xmax=Math.max(xmax,p.x); ymin=Math.min(ymin,p.y); ymax=Math.max(ymax,p.y); }
-  const margin = 40;
-  const sx = (1200-2*margin)/(xmax-xmin);
-  const sy = (520-2*margin)/(ymax-ymin);
-  const k = Math.min(sx,sy);
-  const ox = margin - xmin*k; const oy = margin - ymin*k;
-  for (const p of Object.values(STATION_POS)){ p.x = p.x*k+ox; p.y = p.y*k+oy; }
-})();
-
-/* ציור הרשת */
-function drawNetwork(){
-  svg.innerHTML='';
-  const trunk = {
-    EXPO: ["Waterfront","Burrard","Granville","Stadium–Chinatown","Main Street–Science World","Commercial–Broadway","Nanaimo","29th Avenue","Joyce–Collingwood","Patterson","Metrotown","Royal Oak","Edmonds","22nd Street","New Westminster","Columbia"],
-    MILL: ["VCC–Clark","Commercial–Broadway","Renfrew","Rupert","Gilmore","Brentwood Town Centre","Holdom","Sperling–Burnaby Lake","Lake City Way","Production Way–University","Lougheed Town Centre"],
-    CAN:  ["Waterfront","Vancouver City Centre","Yaletown–Roundhouse","Olympic Village","Broadway–City Hall","King Edward","Oakridge–41st Avenue","Langara–49th Avenue","Marine Drive","Bridgeport"]
-  };
-  const branches = {
-    EXPO: [
-      ["Columbia","Scott Road","Gateway","Surrey Central","King George"],
-      ["Columbia","Sapperton","Braid","Lougheed Town Centre","Production Way–University"]
-    ],
-    MILL: [
-      ["Lougheed Town Centre","Burquitlam","Moody Centre","Inlet Centre","Coquitlam Central","Lincoln","Lafarge Lake–Douglas"]
-    ],
-  CAN: [
-      ["Bridgeport","Templeton","Sea Island Centre","YVR–Airport"],
-      ["Bridgeport","Aberdeen","Lansdowne","Richmond–Brighouse"]
-    ]
-  };
-
-  function drawPolyline(names, color, cls){
-    const pts = names.map(n=>STATION_POS[n]).filter(Boolean);
-    if (pts.length<2) return;
-    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
-    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill','none');
-    path.setAttribute('stroke', color);
-    path.setAttribute('stroke-width','6');
-    path.setAttribute('stroke-linecap','round');
-    path.setAttribute('stroke-linejoin','round');
-    if (cls) path.setAttribute('class', cls);
-    svg.appendChild(path);
-  }
-
-  // ציור קווים
-  drawPolyline(trunk.EXPO, LINE_META.EXPO.color, 'line-expo');
-  drawPolyline(trunk.MILL, LINE_META.MILL.color, 'line-mill');
-  drawPolyline(trunk.CAN,  LINE_META.CAN.color,  'line-can');
-  branches.EXPO.forEach(seq=>drawPolyline(seq,LINE_META.EXPO.color,'line-expo'));
-  branches.MILL.forEach(seq=>drawPolyline(seq,LINE_META.MILL.color,'line-mill'));
-  branches.CAN.forEach(seq=>drawPolyline(seq,LINE_META.CAN.color,'line-can'));
-
-  // תחנות + תוויות בלי חפיפות
-  const placed = [];
-  for (const [name,pt] of Object.entries(STATION_POS)){
-    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
-    c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y); c.setAttribute('r', 4.5);
-    c.setAttribute('fill','#fff'); c.setAttribute('stroke','#0f172a'); c.setAttribute('stroke-width','1.5');
-    svg.appendChild(c);
-    placeLabelNoOverlap(name, pt, placed);
-  }
-  window.__SCHEMA_POINTS__ = STATION_POS;
-}
-
-/* מניעת חפיפת תוויות */
-function placeLabelNoOverlap(name, pt, placed){
-  const positions = [
-    {dx: 8,  dy:-8}, {dx: 8,  dy: 14},
-    {dx:-8,  dy:-8, anchor:'end'}, {dx:-8,  dy: 14, anchor:'end'},
-    {dx: 0,  dy:-14, anchor:'middle'}, {dx: 0,  dy: 22, anchor:'middle'}
-  ];
-  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-  svg.appendChild(g);
-  for (const pos of positions){
-    g.innerHTML = '';
-    const halo = document.createElementNS('http://www.w3.org/2000/svg','text');
-    halo.setAttribute('x', pt.x + pos.dx); halo.setAttribute('y', pt.y + pos.dy);
-    halo.setAttribute('font-size','11'); halo.setAttribute('stroke','#fff'); halo.setAttribute('stroke-width','3');
-    halo.setAttribute('paint-order','stroke'); if (pos.anchor) halo.setAttribute('text-anchor', pos.anchor); halo.textContent = name; g.appendChild(halo);
-    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-    t.setAttribute('x', pt.x + pos.dx); t.setAttribute('y', pt.y + pos.dy);
-    t.setAttribute('font-size','11'); t.setAttribute('fill','#0f172a');
-    if (pos.anchor) t.setAttribute('text-anchor', pos.anchor);
-    t.textContent = name; g.appendChild(t);
-    const bb = g.getBBox(); const box = {x:bb.x, y:bb.y, w:bb.width, h:bb.height};
-    if (!intersectsAny(box, placed)){ placed.push(box); return; }
-  }
-}
-function intersectsAny(box, arr){ for (const b of arr){ if (rectsIntersect(box,b)) return true; } return false; }
-function rectsIntersect(a,b){ return !(a.x+a.w < b.x || b.x+b.w < a.x || a.y+a.h < b.y || b.y+b.h < a.y); }
-
-/* הדגשת מסלול על המפה */
-function highlightTripOnMap(trip){
-  if (!trip){ return; }
-  [...svg.querySelectorAll('.route-highlight')].forEach(el=>el.remove());
-  const P = window.__SCHEMA_POINTS__;
-  for (const leg of trip.legs){
-    const pts = leg.path.map(n => P[n]).filter(Boolean);
-    if (pts.length<2) continue;
-    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
-    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill','none');
-    path.setAttribute('stroke', leg.color);
-    path.setAttribute('stroke-width','9');
-    path.setAttribute('stroke-linecap','round');
-    path.setAttribute('stroke-linejoin','round');
-    path.setAttribute('opacity','0.9');
-    path.setAttribute('class','route-highlight');
-    svg.appendChild(path);
-  }
-}
-
-/* אירועים */
-document.getElementById('tripForm').addEventListener('submit', (e)=>{
-  e.preventDefault();
-  const from=fromSel.value, to=toSel.value;
-  if (from===to){ resultsEl.innerHTML=`<p class="text-sm text-red-600">בחר/י מוצא ויעד שונים.</p>`; return; }
-  const dep = minutesFromDateTimeInputs();
-  const list = planCandidates(from,to,dep);
-  lastTrips = list;
-  renderResults(list);
-  drawNetwork();
-});
-document.getElementById('swapBtn').addEventListener('click', ()=>{
-  const a=fromSel.value, b=toSel.value; fromSel.value=b; toSel.value=a;
-});
-document.getElementById('favBtn').addEventListener('click', ()=>{ saveFav(fromSel.value, toSel.value); });
-document.getElementById('btnShowOnMap')?.addEventListener('click', ()=>{ if (lastTrips.length) highlightTripOnMap(lastTrips[0]); });
-document.getElementById('btnResetMap')?.addEventListener('click', ()=>{ [...svg.querySelectorAll('.route-highlight')].forEach(el=>el.remove()); });
-
-/* תוצאות */
 function renderResults(list){
   resultsEl.innerHTML='';
   if (!list.length){
@@ -449,28 +308,171 @@ function renderResults(list){
         `).join('')}
       </ol>
     `;
-    el.querySelector('button').addEventListener('click', ()=>{ highlightTripOnMap(lastTrips[idx]); });
+    el.querySelector('button').addEventListener('click', async ()=>{
+      await loadWikiMapOnce(); clearOverlay(); drawHighlightedTrip(lastTrips[idx]);
+    });
     resultsEl.appendChild(el);
   });
 }
 
-/* מועדפים */
-function loadFavs(){
-  favsEl.innerHTML='';
-  const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!favs?.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
-  for (const f of favs){
-    const b=document.createElement('button');
-    b.className='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
-    b.textContent=`⭐ ${f.from} → ${f.to}`;
-    b.addEventListener('click', ()=>{ fromSel.value=f.from; toSel.value=f.to; document.getElementById('tripForm').dispatchEvent(new Event('submit')); });
-    favsEl.appendChild(b);
+/* ===== מפה: טעינת SVG מוויקיפדיה + חילוץ קואורדינטות ===== */
+const WIKI_SVG_URL = "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg"; // CC-BY-SA-4.0
+let __WIKI_READY__ = false;
+let __WIKI_VIEWBOX__ = "0 0 512 295";
+let __POS__ = {}; // name -> {x,y}
+
+const NORM = s => s.normalize('NFKC').replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toLowerCase();
+const ALIASES = new Map([
+  ["production way–university", "Production Way–University"],
+  ["production way/university",  "Production Way–University"],
+  ["commercial-broadway",        "Commercial–Broadway"],
+  ["vancouver city centre",      "Vancouver City Centre"],
+  ["oakridge-41st avenue",       "Oakridge–41st Avenue"],
+  ["langara-49th avenue",        "Langara–49th Avenue"],
+  ["main street-science world",  "Main Street–Science World"],
+  ["yaletown-roundhouse",        "Yaletown–Roundhouse"]
+]);
+
+async function loadWikiMapOnce(){
+  if (__WIKI_READY__) return;
+
+  const holder = document.getElementById("wikiSvgHolder");
+  holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-slate-600">טוען מפה…</div>';
+
+  let txt;
+  try{
+    const res = await fetch(WIKI_SVG_URL, { mode: "cors", cache: "force-cache" });
+    txt = await res.text();
+  }catch(e){
+    console.error("שגיאה בטעינת SVG מהויקי:", e);
+    holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-red-600">שגיאה בטעינת המפה</div>';
+    return;
   }
-}
-function saveFav(from,to){
-  const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!favs.find(x=>x.from===from&&x.to===to)){ favs.push({from,to}); localStorage.setItem('mvpfavs',JSON.stringify(favs)); loadFavs(); }
+
+  holder.innerHTML = txt;
+  const baseSvg = holder.querySelector("svg");
+  if (!baseSvg){
+    holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-red-600">לא נמצא SVG</div>';
+    return;
+  }
+
+  const vb = baseSvg.getAttribute("viewBox") || __WIKI_VIEWBOX__;
+  __WIKI_VIEWBOX__ = vb;
+  overlay.setAttribute("viewBox", vb);
+  overlay.innerHTML = "";
+
+  // אסוף תוויות ועיגולים
+  const texts = [...baseSvg.querySelectorAll("text")].map(t => ({
+    el: t,
+    x: +t.getAttribute("x") || 0,
+    y: +t.getAttribute("y") || 0,
+    label: (t.textContent || "").replace(/\s+/g, " ").trim()
+  })).filter(t => t.label && t.label.length <= 60);
+
+  const circles = [...baseSvg.querySelectorAll("circle")].map(c => ({
+    el: c, cx: +c.getAttribute("cx"), cy: +c.getAttribute("cy"),
+    r: +(c.getAttribute("r") || 0)
+  })).filter(c => Number.isFinite(c.cx) && Number.isFinite(c.cy) && c.r >= 3 && c.r <= 9);
+
+  const labelPoint = new Map();
+  for (const t of texts){ labelPoint.set(NORM(t.label), { x:t.x, y:t.y, raw:t.label }); }
+
+  function nearestLabelTo(cx, cy){
+    let best = null, bestD2 = Infinity;
+    for (const t of texts){
+      const dx = (t.x - cx), dy = (t.y - cy), d2 = dx*dx + dy*dy;
+      if (d2 < bestD2){ bestD2 = d2; best = t; }
+    }
+    return (best && Math.sqrt(bestD2) <= 45) ? best : null;
+  }
+
+  const pos = {};
+  const wanted = new Set(ALL_STOPS);
+
+  // (1) עיגול בתוך <a title="...">
+  const anchors = [...baseSvg.querySelectorAll("a")];
+  for (const a of anchors){
+    const ttl = a.getAttribute("title") || a.getAttribute("xlink:title") || "";
+    if (!ttl) continue;
+    const circle = a.querySelector("circle"); if (!circle) continue;
+    const cx = +circle.getAttribute("cx"), cy = +circle.getAttribute("cy");
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    let name = ttl.replace(/\s+station\b/i,"").trim();
+    const alias = ALIASES.get(NORM(name)); if (alias) name = alias;
+    if (wanted.has(name)) pos[name] = { x: cx, y: cy };
+  }
+
+  // (2) עיגול→תווית קרובה
+  for (const c of circles){
+    const lab = nearestLabelTo(c.cx, c.cy); if (!lab) continue;
+    const labKey = NORM(lab.label);
+    const canonical = ALIASES.get(labKey) || [...wanted].find(n => NORM(n) === labKey);
+    if (canonical && !pos[canonical]) pos[canonical] = { x: c.cx, y: c.cy };
+  }
+
+  // (3) תווית על הנקודה (fallback)
+  for (const name of wanted){
+    if (pos[name]) continue;
+    const t = labelPoint.get(NORM(name));
+    if (t){ pos[name] = { x: t.x, y: t.y }; }
+  }
+
+  __POS__ = pos;
+  __WIKI_READY__ = true;
+  console.info("stations resolved from wiki svg:", Object.keys(pos).length, "out of", wanted.size);
 }
 
-/* אתחול */
-populateStops(); loadFavs(); drawNetwork();
+/* ===== ציור/ניקוי הדגשה ===== */
+function clearOverlay(){ overlay.innerHTML = ""; }
+
+function drawHighlightedTrip(trip){
+  if (!trip) return;
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("class", "route-highlight");
+  overlay.appendChild(g);
+
+  for (const leg of trip.legs){
+    const pts = [];
+    for (const stop of leg.path){
+      const p = __POS__[stop];
+      if (p) pts.push(p);
+    }
+    if (pts.length < 2) continue;
+
+    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", leg.color);
+    path.setAttribute("stroke-width", "9");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute("opacity", "0.95");
+    g.appendChild(path);
+  }
+}
+
+/* ===== אירועים ===== */
+document.getElementById('tripForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const from=fromSel.value, to=toSel.value;
+  if (from===to){ resultsEl.innerHTML=`<p class="text-sm text-red-600">בחר/י מוצא ויעד שונים.</p>`; return; }
+  const dep = minutesFromDateTimeInputs();
+  const list = planCandidates(from,to,dep);
+  lastTrips = list;
+  renderResults(list);
+  await loadWikiMapOnce();
+  clearOverlay();
+});
+document.getElementById('swapBtn').addEventListener('click', ()=>{
+  const a=fromSel.value, b=toSel.value; fromSel.value=b; toSel.value=a;
+});
+favBtn.addEventListener('click', ()=>{ saveFav(fromSel.value, toSel.value); });
+btnShowOnMap?.addEventListener('click', async ()=>{
+  if (!lastTrips.length) return;
+  await loadWikiMapOnce(); clearOverlay(); drawHighlightedTrip(lastTrips[0]);
+});
+btnResetMap?.addEventListener('click', ()=>{ clearOverlay(); });
+
+/* ===== אתחול ===== */
+populateStops(); loadFavs();
