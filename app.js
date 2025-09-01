@@ -458,7 +458,7 @@ function renderResults(list){
 function loadFavs(){
   favsEl.innerHTML='';
   const favs=JSON.parse(localStorage.getItem('mvpfavs')||'[]');
-  if (!פavs?.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
+  if (!favs?.length){ favsEl.innerHTML=`<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`; return; }
   for (const f of favs){
     const b=document.createElement('button');
     b.className='inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
