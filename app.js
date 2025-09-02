@@ -365,6 +365,28 @@ async function loadWikiMapOnce(){
   }
 }
 
+  // === אחרי שבנינו pos ===
+  __POS__ = pos;
+  __WIKI_READY__ = true;
+
+  console.info(`stations resolved: ${Object.keys(pos).length} from ${lastTriedUrl}`);
+
+  // אם מעט מדי תחנות — ננסה שוב עם alternate
+  if (Object.keys(__POS__).length < 10) {
+    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
+    __WIKI_READY__ = false;
+    const i = WIKI_SVG_URLS.indexOf(lastTriedUrl);
+    if (i > -1) {
+      const [cur] = WIKI_SVG_URLS.splice(i, 1);
+      WIKI_SVG_URLS.push(cur);
+    }
+    document.getElementById("wikiSvgHolder").innerHTML = "";
+    loadWikiMapOnce().then(() => {
+      console.info("Retry with alternate SVG finished.");
+    });
+  }
+}
+
   // ננתח באמצעות DOMParser כדי לקבל <svg> תקני בדפדפנים
   let baseSvg;
   try{
