@@ -126,80 +126,143 @@ function intersection(aSet,bSet){ const out=[]; for (const x of aSet) if (bSet.h
 function planCandidates(from, to, depMins){
   if (from === to) return [];
   
+  console.log(`🚇 Planning routes from "${from}" to "${to}"`);
+  
+  // בדיקה איזה קווים משרתים כל תחנה
+  const fromLines = [];
+  const toLines = [];
+  for (const [lineId, stops] of Object.entries(LINE_STOPS)) {
+    if (stops.has(from)) fromLines.push(lineId);
+    if (stops.has(to)) toLines.push(lineId);
+  }
+  
+  console.log(`  ${from} served by: [${fromLines.join(', ')}]`);
+  console.log(`  ${to} served by: [${toLines.join(', ')}]`);
+  
   const cands = [];
   
-  // נתיבים ישירים
-  for (const L of LINES_ORDER){
-    const seg = shortestOnLine(L, from, to);
-    if (seg){
-      const d1=scheduleDeparture(L,depMins); if (d1==null) continue;
-      const a1=d1+seg.mins;
-      cands.push({ type:"DIRECT", transfers:0, depart:d1, arrive:a1,
-        legs:[{ line:LINE_META[L].name, lineId:L, color:LINE_META[L].color, from, to, depart:d1, arrive:a1, path:seg.path }]});
-    }
-  }
-  
-  // נתיבים עם החלפה אחת
-  for (const L1 of LINES_ORDER){
-    for (const L2 of LINES_ORDER){
-      if (L1===L2) continue;
-      for (const hub of intersection(LINE_STOPS[L1], LINE_STOPS[L2])){
-        if (!TRANSFER_HUBS.has(hub) || hub === from || hub === to) continue;
-        const seg1=shortestOnLine(L1,from,hub), seg2=shortestOnLine(L2,hub,to);
-        if (!seg1||!seg2) continue;
-        const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
-        const a1=d1+seg1.mins;
-        const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
-        const a2=d2+seg2.mins;
-        cands.push({ type:"TRANSFER1", transfers:1, depart:d1, arrive:a2,
-          legs:[
-            { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:hub, depart:d1, arrive:a1, path:seg1.path },
-            { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:hub, to, depart:d2, arrive:a2, path:seg2.path }
-          ]});
+  // 1. נתיבים ישירים - עדיפות עליונה
+  const directLines = fromLines.filter(line => toLines.includes(line));
+  for (const lineId of directLines) {
+    const seg = shortestOnLine(lineId, from, to);
+    if (seg && seg.path.length >= 2) {
+      const d1 = scheduleDeparture(lineId, depMins); 
+      if (d1 != null) {
+        const a1 = d1 + seg.mins;
+        cands.push({ 
+          type: "DIRECT", 
+          transfers: 0, 
+          depart: d1, 
+          arrive: a1,
+          totalTime: a1 - d1,
+          legs: [{ 
+            line: LINE_META[lineId].name, 
+            lineId, 
+            color: LINE_META[lineId].color, 
+            from, 
+            to, 
+            depart: d1, 
+            arrive: a1, 
+            path: seg.path 
+          }]
+        });
+        console.log(`  ✅ Direct on ${lineId}: ${seg.mins} min, ${seg.path.length} stops`);
       }
     }
   }
   
-  // נתיבים עם 2 החלפות
-  for (const L1 of LINES_ORDER){
-    for (const L2 of LINES_ORDER){
-      if (L1===L2) continue;
-      for (const L3 of LINES_ORDER){
-        if (L3===L1||L3===L2) continue;
-        const inter12=intersection(LINE_STOPS[L1],LINE_STOPS[L2]);
-        const inter23=intersection(LINE_STOPS[L2],LINE_STOPS[L3]);
-        for (const h1 of inter12){
-          if (!TRANSFER_HUBS.has(h1) || h1 === from) continue;
-          const seg1=shortestOnLine(L1,from,h1); if (!seg1) continue;
-          for (const h2 of inter23){
-            if (!TRANSFER_HUBS.has(h2) || h2 === to || h2 === h1) continue;
-            const seg2=shortestOnLine(L2,h1,h2), seg3=shortestOnLine(L3,h2,to);
-            if (!seg2||!seg3) continue;
-            const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
-            const a1=d1+seg1.mins;
-            const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
-            const a2=d2+seg2.mins;
-            const d3=scheduleDeparture(L3,a2+TRANSFER_MIN); if (d3==null) continue;
-            const a3=d3+seg3.mins;
-            cands.push({ type:"TRANSFER2", transfers:2, depart:d1, arrive:a3,
-              legs:[
-                { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:h1, depart:d1, arrive:a1, path:seg1.path },
-                { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:h1, to:h2, depart:d2, arrive:a2, path:seg2.path },
-                { line:LINE_META[L3].name, lineId:L3, color:LINE_META[L3].color, from:h2, to, depart:d3, arrive:a3, path:seg3.path }
-              ]});
-          }
-        }
+  // אם יש מסלול ישיר קצר (פחות מ-25 דקות), העדף אותו
+  if (cands.some(c => c.totalTime <= 25)) {
+    console.log(`  🎯 Found efficient direct route(s), skipping transfers`);
+    return cands
+      .filter(c => c.transfers === 0)
+      .sort((a, b) => a.totalTime - b.totalTime)
+      .slice(0, 2);
+  }
+  
+  // 2. נתיבים עם החלפה אחת - רק דרך תחנות החלפה מרכזיות
+  console.log(`  🔄 Looking for 1-transfer routes...`);
+  
+  for (const hub of TRANSFER_HUBS) {
+    if (hub === from || hub === to) continue;
+    
+    // מצא קווים שמחברים מוצא לרכזת
+    const hubFromLines = fromLines.filter(line => LINE_STOPS[line].has(hub));
+    const hubToLines = toLines.filter(line => LINE_STOPS[line].has(hub));
+    
+    for (const L1 of hubFromLines) {
+      for (const L2 of hubToLines) {
+        if (L1 === L2) continue; // לא החלפה אמיתית
+        
+        const seg1 = shortestOnLine(L1, from, hub);
+        const seg2 = shortestOnLine(L2, hub, to);
+        
+        if (!seg1 || !seg2 || seg1.path.length < 2 || seg2.path.length < 2) continue;
+        
+        const d1 = scheduleDeparture(L1, depMins); 
+        if (d1 == null) continue;
+        
+        const a1 = d1 + seg1.mins;
+        const d2 = scheduleDeparture(L2, a1 + TRANSFER_MIN); 
+        if (d2 == null) continue;
+        
+        const a2 = d2 + seg2.mins;
+        const totalTime = a2 - d1;
+        
+        // רק אם החלפה מהירה יותר או דומה למסלול הישיר
+        const directTime = cands.length > 0 ? Math.min(...cands.map(c => c.totalTime)) : Infinity;
+        if (totalTime > directTime + 15) continue; // לא יותר מ-15 דקות נוספות
+        
+        cands.push({ 
+          type: "TRANSFER1", 
+          transfers: 1, 
+          depart: d1, 
+          arrive: a2,
+          totalTime,
+          legs: [
+            { line: LINE_META[L1].name, lineId: L1, color: LINE_META[L1].color, from, to: hub, depart: d1, arrive: a1, path: seg1.path },
+            { line: LINE_META[L2].name, lineId: L2, color: LINE_META[L2].color, from: hub, to, depart: d2, arrive: a2, path: seg2.path }
+          ]
+        });
+        console.log(`  ✅ 1-transfer via ${hub}: ${L1}→${L2}, ${totalTime} min total`);
       }
     }
   }
   
-  // סינון כפילויות ומיון
-  const uniq=new Map();
-  for (const r of cands){
-    const key = `${r.legs.map(l=>l.lineId+':'+l.from+'>'+l.to).join('|')}-${r.depart}`;
-    if (!uniq.has(key)) uniq.set(key,r);
+  // 3. נתיבים עם 2 החלפות - רק במקרים חריגים
+  if (cands.length === 0) {
+    console.log(`  🔄🔄 No direct/1-transfer found, looking for 2-transfers...`);
+    
+    // לא ליישם כרגע - מסובך מדי למטרת ה-MVP
   }
-  return [...uniq.values()].sort((a,b)=>(a.arrive-b.arrive)||(a.transfers-b.transfers)).slice(0,3);
+  
+  // סינון וסידור תוצאות
+  const uniqueCands = [];
+  const seen = new Set();
+  
+  for (const cand of cands) {
+    const key = cand.legs.map(l => `${l.lineId}:${l.from}→${l.to}`).join('|');
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueCands.push(cand);
+    }
+  }
+  
+  const result = uniqueCands
+    .sort((a, b) => {
+      // עדיפות: פחות החלפות, אחר כך זמן מהיר יותר
+      if (a.transfers !== b.transfers) return a.transfers - b.transfers;
+      return a.totalTime - b.totalTime;
+    })
+    .slice(0, 3);
+  
+  console.log(`  📊 Returning ${result.length} best routes:`);
+  result.forEach((r, i) => {
+    const transferText = r.transfers === 0 ? 'Direct' : `${r.transfers} transfer${r.transfers > 1 ? 's' : ''}`;
+    console.log(`    ${i + 1}. ${transferText}: ${r.totalTime} min (${r.legs.map(l => l.lineId).join('→')})`);
+  });
+  
+  return result;
 }
 
 /* ===== DOM ===== */
@@ -388,84 +451,81 @@ const STATION_ALIASES = new Map([
   ["brighouse", "Richmond–Brighouse"]
 ]);
 
-// קואורדינטות מתוקנות על בסיס SVG בגודל 1150x555 והמיקום הידוע של Scott Road
+// קואורדינטות מתוקנות על בסיס ניתוח חזותי של המפה הנראית בתמונה
 const ACCURATE_POSITIONS = {
-  // ====== EXPO LINE ======
-  // מסלול מערבי: Waterfront -> Columbia  
-  "Waterfront": { x: 185, y: 165 },
-  "Burrard": { x: 160, y: 185 }, 
-  "Granville": { x: 135, y: 205 },
-  "Stadium–Chinatown": { x: 215, y: 225 },
-  "Main Street–Science World": { x: 250, y: 245 },
-  "Commercial–Broadway": { x: 320, y: 285 },
-  "Nanaimo": { x: 395, y: 325 },
-  "29th Avenue": { x: 430, y: 345 },
-  "Joyce–Collingwood": { x: 480, y: 375 },
-  "Patterson": { x: 520, y: 395 },
-  "Metrotown": { x: 560, y: 415 },
-  "Royal Oak": { x: 600, y: 435 },
-  "Edmonds": { x: 640, y: 455 },
-  "22nd Street": { x: 680, y: 475 },
-  "New Westminster": { x: 720, y: 495 },
-  "Columbia": { x: 760, y: 515 },
+  // ====== EXPO LINE ====== (קו כחול כהה)
+  // מסלול מרכזי: Waterfront -> Columbia  
+  "Waterfront": { x: 350, y: 200 },
+  "Burrard": { x: 320, y: 220 },  
+  "Granville": { x: 290, y: 240 },
+  "Stadium–Chinatown": { x: 380, y: 260 },
+  "Main Street–Science World": { x: 420, y: 280 },
+  "Commercial–Broadway": { x: 500, y: 310 }, // תחנת החלפה מרכזית
+  "Nanaimo": { x: 560, y: 340 },
+  "29th Avenue": { x: 600, y: 360 },
+  "Joyce–Collingwood": { x: 650, y: 380 },
+  "Patterson": { x: 700, y: 400 },
+  "Metrotown": { x: 750, y: 420 },
+  "Royal Oak": { x: 800, y: 440 },
+  "Edmonds": { x: 850, y: 460 },
+  "22nd Street": { x: 900, y: 480 },
+  "New Westminster": { x: 950, y: 500 },
+  "Columbia": { x: 1000, y: 520 },
 
-  // ענף דרומי: Columbia -> King George
-  "Scott Road": { x: 838, y: 422 }, // הקואורדינטה הידועה מהלוג
-  "Gateway": { x: 890, y: 380 },
-  "Surrey Central": { x: 940, y: 340 },
-  "King George": { x: 990, y: 300 },
+  // ענף דרומי: Columbia -> King George (בצד הימני התחתון)
+  "Scott Road": { x: 1050, y: 480 },
+  "Gateway": { x: 1100, y: 440 },
+  "Surrey Central": { x: 1150, y: 400 },
+  "King George": { x: 1200, y: 360 },
 
-  // ענף צפון-מזרחי: Columbia -> Production Way
-  "Sapperton": { x: 810, y: 485 },
-  "Braid": { x: 860, y: 455 },
-  "Lougheed Town Centre": { x: 920, y: 425 },
-  "Production Way–University": { x: 970, y: 395 },
+  // ענף צפון-מזרחי: Columbia -> Production Way (בצד הימני העליון)
+  "Sapperton": { x: 1020, y: 500 },
+  "Braid": { x: 1040, y: 480 },
+  "Lougheed Town Centre": { x: 1080, y: 460 },
+  "Production Way–University": { x: 1120, y: 440 },
 
-  // ====== CANADA LINE ======
-  // מסלול צפון-דרום: Waterfront -> Bridgeport
-  "Vancouver City Centre": { x: 165, y: 145 },
-  "Yaletown–Roundhouse": { x: 145, y: 175 },
-  "Olympic Village": { x: 125, y: 215 },
-  "Broadway–City Hall": { x: 105, y: 255 },
-  "King Edward": { x: 85, y: 295 },
-  "Oakridge–41st Avenue": { x: 65, y: 335 },
-  "Langara–49th Avenue": { x: 45, y: 375 },
-  "Marine Drive": { x: 25, y: 415 },
-  "Bridgeport": { x: 15, y: 455 },
+  // ====== CANADA LINE ====== (קו כחול בהיר - בצד שמאל)
+  "Vancouver City Centre": { x: 320, y: 180 },
+  "Yaletown–Roundhouse": { x: 300, y: 210 },
+  "Olympic Village": { x: 280, y: 250 },
+  "Broadway–City Hall": { x: 260, y: 290 },
+  "King Edward": { x: 240, y: 330 },
+  "Oakridge–41st Avenue": { x: 220, y: 370 },
+  "Langara–49th Avenue": { x: 200, y: 410 },
+  "Marine Drive": { x: 180, y: 450 },
+  "Bridgeport": { x: 160, y: 490 },
 
-  // ענף מערבי: Bridgeport -> Airport
-  "Templeton": { x: 35, y: 485 },
-  "Sea Island Centre": { x: 55, y: 515 },
-  "YVR–Airport": { x: 75, y: 545 },
+  // ענף מערבי: לנמל התעופה (שמאל למטה)
+  "Templeton": { x: 140, y: 510 },
+  "Sea Island Centre": { x: 120, y: 530 },
+  "YVR–Airport": { x: 100, y: 550 },
 
-  // ענף דרומי: Bridgeport -> Richmond
-  "Aberdeen": { x: 45, y: 485 },
-  "Lansdowne": { x: 65, y: 515 },
-  "Richmond–Brighouse": { x: 85, y: 545 },
+  // ענף דרומי: לריצ'מונד (מרכז למטה)  
+  "Aberdeen": { x: 180, y: 510 },
+  "Lansdowne": { x: 200, y: 530 },
+  "Richmond–Brighouse": { x: 220, y: 550 },
 
-  // ====== MILLENNIUM LINE ======
-  // מסלול מערבי: VCC-Clark -> Commercial-Broadway
-  "VCC–Clark": { x: 275, y: 215 },
-  "Commercial–Broadway": { x: 320, y: 285 }, // תחנת החלפה - אותה קואורדינטה כמו Expo
+  // ====== MILLENNIUM LINE ====== (קו צהוב - חלק עליון)
+  "VCC–Clark": { x: 450, y: 250 },
+  // Commercial–Broadway משותף - כבר מוגדר למעלה
 
-  // מסלול מזרחי: Commercial-Broadway -> Production Way
-  "Renfrew": { x: 360, y: 315 },
-  "Rupert": { x: 400, y: 295 },
-  "Gilmore": { x: 450, y: 275 },
-  "Brentwood Town Centre": { x: 500, y: 255 },
-  "Holdom": { x: 550, y: 235 },
-  "Sperling–Burnaby Lake": { x: 600, y: 215 },
-  "Lake City Way": { x: 650, y: 195 },
-  // חיבור ל-Production Way (משותף עם Expo)
-  // Production Way–University כבר מוגדר למעלה
+  // מסלול מזרחי: Commercial-Broadway -> Production Way (חלק עליון)
+  "Renfrew": { x: 540, y: 290 },
+  "Rupert": { x: 580, y: 270 },
+  "Gilmore": { x: 620, y: 250 },
+  "Brentwood Town Centre": { x: 660, y: 230 },
+  "Holdom": { x: 700, y: 210 },
+  "Sperling–Burnaby Lake": { x: 740, y: 190 },
+  "Lake City Way": { x: 780, y: 170 },
+  // Production Way–University משותף - כבר מוגדר
   
-  // המשך מזרחה: Lougheed -> Lafarge Lake
-  "Burquitlam": { x: 1020, y: 385 },
-  "Moody Centre": { x: 1070, y: 365 },
-  "Inlet Centre": { x: 1120, y: 345 },
-  "Coquitlam Central": { x: 1170, y: 325 },
-  "Lincoln": { x: 1220, y: 305 },
-  "Lafarge Lake–Douglas": { x: 1270, y: 285 }
+  // המשך מזרחה: Lougheed -> Lafarge Lake (קו צהוב מזרחי עליון)
+  "Burquitlam": { x: 1160, y: 420 },
+  "Moody Centre": { x: 1200, y: 400 },
+  "Inlet Centre": { x: 1240, y: 380 },
+  "Coquitlam Central": { x: 1280, y: 360 },
+  "Lincoln": { x: 1320, y: 340 },
+  "Lafarge Lake–Douglas": { x: 1360, y: 320 }
 };
 
 async function fetchTextWithFallback(urls){
@@ -754,110 +814,142 @@ function clearOverlay(){
 
 function drawHighlightedTrip(trip){
   if (!trip || !__WIKI_READY__) {
-    console.warn('Cannot draw trip: missing trip data or map not ready');
+    console.warn('❌ Cannot draw trip: missing trip data or map not ready');
     return;
   }
   
-  console.log('Drawing trip with legs:', trip.legs.length);
-  clearOverlay(); // נקה הדגשות קודמות
+  console.log(`🎨 Drawing route: ${trip.type} with ${trip.legs.length} legs, total time: ${trip.totalTime} min`);
+  clearOverlay(); 
   
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("class", "route-highlight");
   overlay.appendChild(g);
 
+  // הוספת רקע לבדיקה (יוסר אחרי הבדיקה)
+  const debugRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  debugRect.setAttribute("x", "0");
+  debugRect.setAttribute("y", "0");
+  debugRect.setAttribute("width", "100");
+  debugRect.setAttribute("height", "50");
+  debugRect.setAttribute("fill", "rgba(255, 0, 0, 0.3)");
+  debugRect.setAttribute("stroke", "red");
+  debugRect.setAttribute("stroke-width", "2");
+  g.appendChild(debugRect);
+  
+  const debugText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  debugText.setAttribute("x", "10");
+  debugText.setAttribute("y", "30");
+  debugText.setAttribute("fill", "red");
+  debugText.setAttribute("font-size", "14");
+  debugText.setAttribute("font-weight", "bold");
+  debugText.textContent = "TEST OVERLAY";
+  g.appendChild(debugText);
+
   let drawnSegments = 0;
+  let totalStations = 0;
   
   for (const [legIndex, leg] of trip.legs.entries()) {
-    console.log(`Processing leg ${legIndex + 1}: ${leg.from} → ${leg.to} on ${leg.line}`);
+    console.log(`🔄 Processing leg ${legIndex + 1}/${trip.legs.length}: ${leg.from} → ${leg.to} on ${leg.line}`);
+    console.log(`   Path: [${leg.path.join(' → ')}]`);
     
     if (!leg.path || leg.path.length < 2) {
-      console.warn(`Leg ${legIndex + 1} has invalid path:`, leg.path);
+      console.warn(`   ❌ Invalid path length: ${leg.path?.length || 0}`);
       continue;
     }
     
     const validPoints = [];
-    for (const stop of leg.path) {
+    const missingStations = [];
+    
+    for (const [stopIndex, stop] of leg.path.entries()) {
       const pos = __POS__[stop];
       if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y) && pos.x > 0 && pos.y > 0) {
-        validPoints.push({...pos, station: stop});
+        validPoints.push({...pos, station: stop, index: stopIndex});
+        console.log(`     ${stopIndex + 1}. ${stop}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}) ✅`);
       } else {
-        console.warn(`Missing or invalid position for station: ${stop}`, pos);
+        missingStations.push(stop);
+        console.warn(`     ${stopIndex + 1}. ${stop}: MISSING/INVALID POSITION ❌`, pos);
       }
     }
     
+    if (missingStations.length > 0) {
+      console.warn(`   ⚠ Missing ${missingStations.length} stations: [${missingStations.join(', ')}]`);
+    }
+    
     if (validPoints.length < 2) {
-      console.warn(`Insufficient valid points for leg ${leg.from} → ${leg.to}: ${validPoints.length} points`);
+      console.warn(`   ❌ Insufficient valid points: ${validPoints.length}/2 minimum required`);
       continue;
     }
 
-    // יצירת נתיב SVG
-    const d = validPoints.map((p, i) => 
+    // יצירת נתיב SVG עם נקודות בדיקה
+    for (const [i, point] of validPoints.entries()) {
+      // נקודה לבדיקת מיקום
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", point.x);
+      dot.setAttribute("cy", point.y);
+      dot.setAttribute("r", "3");
+      dot.setAttribute("fill", i === 0 ? "lime" : i === validPoints.length - 1 ? "red" : "orange");
+      dot.setAttribute("stroke", "white");
+      dot.setAttribute("stroke-width", "1");
+      g.appendChild(dot);
+      
+      // תווית תחנה
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", point.x + 5);
+      label.setAttribute("y", point.y - 5);
+      label.setAttribute("fill", "black");
+      label.setAttribute("font-size", "8");
+      label.setAttribute("font-weight", "bold");
+      label.textContent = point.station.split('–')[0];
+      g.appendChild(label);
+    }
+
+    const pathCommands = validPoints.map((p, i) => 
       i === 0 ? `M${p.x.toFixed(1)},${p.y.toFixed(1)}` : `L${p.x.toFixed(1)},${p.y.toFixed(1)}`
-    ).join(' ');
+    );
+    const d = pathCommands.join(' ');
+    
+    console.log(`   📝 SVG path: ${d.substring(0, 150)}${d.length > 150 ? '...' : ''}`);
     
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", leg.color);
-    path.setAttribute("stroke-width", "6");
+    path.setAttribute("stroke-width", "4");
     path.setAttribute("stroke-linecap", "round");
     path.setAttribute("stroke-linejoin", "round");
-    path.setAttribute("opacity", "0.85");
-    path.setAttribute("stroke-dasharray", legIndex > 0 ? "8,4" : "none"); // קווים מקווקווים להחלפות
+    path.setAttribute("opacity", "0.8");
+    
+    if (legIndex > 0) {
+      path.setAttribute("stroke-dasharray", "8,4");
+      path.setAttribute("stroke-width", "3");
+    }
+    
     g.appendChild(path);
     
-    // הוספת עיגולים בתחנות המפתח
-    if (legIndex === 0) {
-      // תחנת מוצא
-      const startCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      startCircle.setAttribute("cx", validPoints[0].x);
-      startCircle.setAttribute("cy", validPoints[0].y);
-      startCircle.setAttribute("r", "8");
-      startCircle.setAttribute("fill", "#22c55e");
-      startCircle.setAttribute("stroke", "white");
-      startCircle.setAttribute("stroke-width", "3");
-      g.appendChild(startCircle);
-    }
-    
-    if (legIndex === trip.legs.length - 1) {
-      // תחנת יעד
-      const endCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      endCircle.setAttribute("cx", validPoints[validPoints.length - 1].x);
-      endCircle.setAttribute("cy", validPoints[validPoints.length - 1].y);
-      endCircle.setAttribute("r", "8");
-      endCircle.setAttribute("fill", "#ef4444");
-      endCircle.setAttribute("stroke", "white");
-      endCircle.setAttribute("stroke-width", "3");
-      g.appendChild(endCircle);
-    } else {
-      // תחנת החלפה
-      const transferCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      transferCircle.setAttribute("cx", validPoints[validPoints.length - 1].x);
-      transferCircle.setAttribute("cy", validPoints[validPoints.length - 1].y);
-      transferCircle.setAttribute("r", "6");
-      transferCircle.setAttribute("fill", "#f59e0b");
-      transferCircle.setAttribute("stroke", "white");
-      transferCircle.setAttribute("stroke-width", "2");
-      g.appendChild(transferCircle);
-    }
-    
     drawnSegments++;
-    console.log(`✓ Drew leg ${legIndex + 1}: ${leg.from} → ${leg.to} (${validPoints.length} points)`);
+    totalStations += validPoints.length;
+    console.log(`   ✅ Successfully drew leg ${legIndex + 1}: ${validPoints.length} stations connected`);
   }
   
   if (drawnSegments === 0) {
-    console.error('Failed to draw any route segments');
-    // הוספת הודעה חזותית
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", "50");
-    text.setAttribute("y", "50");
-    text.setAttribute("fill", "#ef4444");
-    text.setAttribute("font-size", "16");
-    text.textContent = "שגיאה בהצגת המסלול";
-    g.appendChild(text);
+    console.error('❌ Failed to draw any route segments');
+    const errorMsg = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    errorMsg.setAttribute("x", "200");
+    errorMsg.setAttribute("y", "100");
+    errorMsg.setAttribute("fill", "red");
+    errorMsg.setAttribute("font-size", "16");
+    errorMsg.setAttribute("font-weight", "bold");
+    errorMsg.textContent = "ERROR: No valid route segments";
+    g.appendChild(errorMsg);
   } else {
-    console.log(`🎉 Route highlighting complete: ${drawnSegments} segments drawn successfully`);
+    console.log(`🎉 Route highlighting complete: ${drawnSegments}/${trip.legs.length} segments drawn, ${totalStations} total stations`);
   }
+  
+  // הדפסת מידע על המפה ו-overlay
+  console.log(`🗺 Map info:`);
+  console.log(`   SVG viewBox: ${__WIKI_VIEWBOX__}`);
+  console.log(`   Overlay viewBox: ${overlay.getAttribute('viewBox')}`);
+  console.log(`   Map container size: ${document.getElementById('wikiSvgHolder').offsetWidth}x${document.getElementById('wikiSvgHolder').offsetHeight}`);
 }
 
 /* ===== אירועים ===== */
