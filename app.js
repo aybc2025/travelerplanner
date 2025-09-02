@@ -287,9 +287,10 @@ function renderResults(list){
 /* ===== מפה: טעינת SVG מוויקיפדיה + חילוץ קואורדינטות ===== */
 /* ננסה קודם את ה-URL שנתת, ואם נכשל — גיבוי לקובץ אחר דומה. */
 const WIKI_SVG_URLS = [
-  "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg",            // זה שנתת
-  "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg"   // גיבוי
+  "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg", // עדיף – מכיל תוויות text
+  "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg"             // גיבוי
 ];
+
 
 let __WIKI_READY__ = false;
 let __WIKI_VIEWBOX__ = "0 0 512 295";
@@ -426,6 +427,22 @@ async function loadWikiMapOnce(){
   __WIKI_READY__ = true;
   console.info("stations resolved:", Object.keys(pos).length, "from", usedUrl);
 }
+
+// אם חילצנו מעט מדי תחנות, ננסה אוטומטית את ה-URL הבא ברשימה
+if (Object.keys(__POS__).length < 10) {
+  console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
+  __WIKI_READY__ = false;
+  // הזזה של ה-URL הנוכחי לסוף הרשימה כדי שנספר הבא
+  const i = WIKI_SVG_URLS.indexOf(usedUrl);
+  if (i > -1) {
+    const [cur] = WIKI_SVG_URLS.splice(i, 1);
+    WIKI_SVG_URLS.push(cur);
+  }
+  // ניקוי מחזיק, נסיון טעינה נוסף
+  document.getElementById("wikiSvgHolder").innerHTML = "";
+  await loadWikiMapOnce(); // קריאה חוזרת עם ה-URL הבא
+}
+
 
 /* ===== ציור/ניקוי הדגשה ===== */
 function clearOverlay(){ overlay.innerHTML = ""; }
