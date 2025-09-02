@@ -307,7 +307,7 @@ const WIKI_SVG_URLS = [
 ];
 
 let __WIKI_READY__ = false;
-let __WIKI_VIEWBOX__ = "0 0 512 295";
+let __WIKI_VIEWBOX__ = "0 0 1150 555";
 let __POS__ = {}; // name -> {x,y}
 let __RETRY_COUNT__ = 0;
 const MAX_RETRIES = 2;
@@ -388,69 +388,84 @@ const STATION_ALIASES = new Map([
   ["brighouse", "Richmond–Brighouse"]
 ]);
 
-// קואורדינטות נפרדות ומדויקות יותר בהתאם ל-SVG האמיתי
+// קואורדינטות מתוקנות על בסיס SVG בגודל 1150x555 והמיקום הידוע של Scott Road
 const ACCURATE_POSITIONS = {
-  // Expo Line - מערב למזרח
-  "Waterfront": { x: 340, y: 180 },
-  "Burrard": { x: 320, y: 200 },
-  "Granville": { x: 300, y: 220 },
-  "Stadium–Chinatown": { x: 380, y: 240 },
-  "Main Street–Science World": { x: 420, y: 260 },
-  "Commercial–Broadway": { x: 500, y: 300 },
-  "Nanaimo": { x: 580, y: 340 },
-  "29th Avenue": { x: 620, y: 360 },
-  "Joyce–Collingwood": { x: 680, y: 390 },
-  "Patterson": { x: 720, y: 410 },
-  "Metrotown": { x: 760, y: 430 },
-  "Royal Oak": { x: 800, y: 450 },
-  "Edmonds": { x: 840, y: 470 },
-  "22nd Street": { x: 880, y: 490 },
-  "New Westminster": { x: 920, y: 510 },
-  "Columbia": { x: 960, y: 530 },
-  // Expo South - ענף King George
-  "Scott Road": { x: 900, y: 580 },
-  "Gateway": { x: 850, y: 620 },
-  "Surrey Central": { x: 800, y: 660 },
-  "King George": { x: 750, y: 700 },
-  // Expo Northeast - ענף Production Way
-  "Sapperton": { x: 1000, y: 500 },
-  "Braid": { x: 1040, y: 480 },
-  "Lougheed Town Centre": { x: 1100, y: 460 },
-  "Production Way–University": { x: 1140, y: 440 },
+  // ====== EXPO LINE ======
+  // מסלול מערבי: Waterfront -> Columbia  
+  "Waterfront": { x: 185, y: 165 },
+  "Burrard": { x: 160, y: 185 }, 
+  "Granville": { x: 135, y: 205 },
+  "Stadium–Chinatown": { x: 215, y: 225 },
+  "Main Street–Science World": { x: 250, y: 245 },
+  "Commercial–Broadway": { x: 320, y: 285 },
+  "Nanaimo": { x: 395, y: 325 },
+  "29th Avenue": { x: 430, y: 345 },
+  "Joyce–Collingwood": { x: 480, y: 375 },
+  "Patterson": { x: 520, y: 395 },
+  "Metrotown": { x: 560, y: 415 },
+  "Royal Oak": { x: 600, y: 435 },
+  "Edmonds": { x: 640, y: 455 },
+  "22nd Street": { x: 680, y: 475 },
+  "New Westminster": { x: 720, y: 495 },
+  "Columbia": { x: 760, y: 515 },
+
+  // ענף דרומי: Columbia -> King George
+  "Scott Road": { x: 838, y: 422 }, // הקואורדינטה הידועה מהלוג
+  "Gateway": { x: 890, y: 380 },
+  "Surrey Central": { x: 940, y: 340 },
+  "King George": { x: 990, y: 300 },
+
+  // ענף צפון-מזרחי: Columbia -> Production Way
+  "Sapperton": { x: 810, y: 485 },
+  "Braid": { x: 860, y: 455 },
+  "Lougheed Town Centre": { x: 920, y: 425 },
+  "Production Way–University": { x: 970, y: 395 },
+
+  // ====== CANADA LINE ======
+  // מסלול צפון-דרום: Waterfront -> Bridgeport
+  "Vancouver City Centre": { x: 165, y: 145 },
+  "Yaletown–Roundhouse": { x: 145, y: 175 },
+  "Olympic Village": { x: 125, y: 215 },
+  "Broadway–City Hall": { x: 105, y: 255 },
+  "King Edward": { x: 85, y: 295 },
+  "Oakridge–41st Avenue": { x: 65, y: 335 },
+  "Langara–49th Avenue": { x: 45, y: 375 },
+  "Marine Drive": { x: 25, y: 415 },
+  "Bridgeport": { x: 15, y: 455 },
+
+  // ענף מערבי: Bridgeport -> Airport
+  "Templeton": { x: 35, y: 485 },
+  "Sea Island Centre": { x: 55, y: 515 },
+  "YVR–Airport": { x: 75, y: 545 },
+
+  // ענף דרומי: Bridgeport -> Richmond
+  "Aberdeen": { x: 45, y: 485 },
+  "Lansdowne": { x: 65, y: 515 },
+  "Richmond–Brighouse": { x: 85, y: 545 },
+
+  // ====== MILLENNIUM LINE ======
+  // מסלול מערבי: VCC-Clark -> Commercial-Broadway
+  "VCC–Clark": { x: 275, y: 215 },
+  "Commercial–Broadway": { x: 320, y: 285 }, // תחנת החלפה - אותה קואורדינטה כמו Expo
+
+  // מסלול מזרחי: Commercial-Broadway -> Production Way
+  "Renfrew": { x: 360, y: 315 },
+  "Rupert": { x: 400, y: 295 },
+  "Gilmore": { x: 450, y: 275 },
+  "Brentwood Town Centre": { x: 500, y: 255 },
+  "Holdom": { x: 550, y: 235 },
+  "Sperling–Burnaby Lake": { x: 600, y: 215 },
+  "Lake City Way": { x: 650, y: 195 },
+  // חיבור ל-Production Way (משותף עם Expo)
+  // Production Way–University כבר מוגדר למעלה
   
-  // Canada Line - צפון לדרום
-  "Vancouver City Centre": { x: 280, y: 160 },
-  "Yaletown–Roundhouse": { x: 260, y: 200 },
-  "Olympic Village": { x: 240, y: 250 },
-  "Broadway–City Hall": { x: 220, y: 300 },
-  "King Edward": { x: 200, y: 350 },
-  "Oakridge–41st Avenue": { x: 180, y: 400 },
-  "Langara–49th Avenue": { x: 160, y: 450 },
-  "Marine Drive": { x: 140, y: 500 },
-  "Bridgeport": { x: 120, y: 550 },
-  "Templeton": { x: 80, y: 580 },
-  "Sea Island Centre": { x: 40, y: 610 },
-  "YVR–Airport": { x: 20, y: 640 },
-  "Aberdeen": { x: 160, y: 580 },
-  "Lansdowne": { x: 180, y: 610 },
-  "Richmond–Brighouse": { x: 200, y: 640 },
-  
-  // Millennium Line - מערב למזרח
-  "VCC–Clark": { x: 450, y: 240 },
-  "Renfrew": { x: 540, y: 320 },
-  "Rupert": { x: 560, y: 300 },
-  "Gilmore": { x: 600, y: 280 },
-  "Brentwood Town Centre": { x: 650, y: 260 },
-  "Holdom": { x: 700, y: 240 },
-  "Sperling–Burnaby Lake": { x: 750, y: 220 },
-  "Lake City Way": { x: 800, y: 200 },
-  // ממשיך ל-Production Way ולאחר מכן מזרחה
-  "Burquitlam": { x: 1200, y: 420 },
-  "Moody Centre": { x: 1260, y: 400 },
-  "Inlet Centre": { x: 1300, y: 380 },
-  "Coquitlam Central": { x: 1340, y: 360 },
-  "Lincoln": { x: 1380, y: 340 },
-  "Lafarge Lake–Douglas": { x: 1420, y: 320 }
+  // המשך מזרחה: Lougheed -> Lafarge Lake
+  "Burquitlam": { x: 1020, y: 385 },
+  "Moody Centre": { x: 1070, y: 365 },
+  "Inlet Centre": { x: 1120, y: 345 },
+  "Coquitlam Central": { x: 1170, y: 325 },
+  "Lincoln": { x: 1220, y: 305 },
+  "Lafarge Lake–Douglas": { x: 1270, y: 285 }
 };
 
 async function fetchTextWithFallback(urls){
@@ -483,63 +498,94 @@ function findStationPositions(svgElement) {
   
   console.log('Starting enhanced station position extraction...');
   
-  // אסטרטגיה 1: חיפוש טקסט מתקדם יותר
-  const allTextElements = svgElement.querySelectorAll('text, tspan, title');
+  // אסטרטגיה 1: חיפוש כל טקסטים וכותרות
+  const allTextElements = svgElement.querySelectorAll('text, tspan, title, desc, #text');
   console.log(`Found ${allTextElements.length} text-like elements`);
+  
+  // רשימה מורחבת של מילות מפתח לשמות תחנות
+  const STATION_KEYWORDS = new Set([
+    'waterfront', 'burrard', 'granville', 'stadium', 'chinatown', 'main', 'science', 'world',
+    'commercial', 'broadway', 'nanaimo', '29th', 'avenue', 'joyce', 'collingwood', 'patterson',
+    'metrotown', 'royal', 'oak', 'edmonds', '22nd', 'street', 'new', 'westminster', 'columbia',
+    'scott', 'road', 'gateway', 'surrey', 'central', 'king', 'george', 'sapperton', 'braid',
+    'lougheed', 'town', 'centre', 'production', 'way', 'university', 'vcc', 'clark', 'renfrew',
+    'rupert', 'gilmore', 'brentwood', 'holdom', 'sperling', 'burnaby', 'lake', 'city',
+    'burquitlam', 'moody', 'inlet', 'coquitlam', 'lincoln', 'lafarge', 'douglas', 'vancouver',
+    'yaletown', 'roundhouse', 'olympic', 'village', 'hall', 'edward', 'oakridge', '41st',
+    'langara', '49th', 'marine', 'drive', 'bridgeport', 'templeton', 'sea', 'island', 'yvr',
+    'airport', 'aberdeen', 'lansdowne', 'richmond', 'brighouse'
+  ]);
   
   for (const textEl of allTextElements) {
     const textContent = (textEl.textContent || '').trim();
     if (!textContent || textContent.length > 100) continue;
     
-    // נורמליזציה מתקדמת יותר
-    let normalizedText = textContent
-      .replace(/\s*station\s*/gi, '')
-      .replace(/\s*stn\s*/gi, '')
-      .replace(/[–—\-]/g, '-')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+    // בדיקה אם הטקסט מכיל מילות מפתח של תחנות
+    const normalizedText = NORM(textContent);
+    const hasStationKeyword = normalizedText.split(/\s+/).some(word => STATION_KEYWORDS.has(word));
     
-    // חיפוש ישיר
+    if (!hasStationKeyword) continue;
+    
+    // ניסוי התאמה ישירה
     let stationName = STATION_ALIASES.get(normalizedText);
     
-    // חיפוש חלקי חכם יותר
+    // חיפוש חלקי משופר
     if (!stationName) {
       for (const [alias, fullName] of STATION_ALIASES.entries()) {
-        if (normalizedText.includes(alias) || alias.includes(normalizedText)) {
-          if (Math.abs(alias.length - normalizedText.length) <= 5) {
-            stationName = fullName;
-            break;
-          }
+        if (normalizedText.includes(alias) && Math.abs(alias.length - normalizedText.length) <= 8) {
+          stationName = fullName;
+          break;
+        }
+      }
+    }
+    
+    // חיפוש במילים נפרדות
+    if (!stationName) {
+      const words = normalizedText.split(/\s+/);
+      for (const station of wantedStations) {
+        const stationWords = NORM(station).split(/\s+/);
+        const commonWords = words.filter(w => stationWords.some(sw => sw.includes(w) || w.includes(sw)));
+        if (commonWords.length >= Math.min(2, stationWords.length)) {
+          stationName = station;
+          break;
         }
       }
     }
     
     if (stationName && wantedStations.has(stationName) && !positions[stationName]) {
-      // חישוב מיקום
       let x = parseFloat(textEl.getAttribute('x') || '0');
       let y = parseFloat(textEl.getAttribute('y') || '0');
       
-      // גיבוי: חיפוש במיקום ההורה
+      // חיפוש בהורים
       if (x === 0 && y === 0) {
         let parent = textEl.parentElement;
-        while (parent && (x === 0 || y === 0)) {
+        let depth = 0;
+        while (parent && (x === 0 || y === 0) && depth < 5) {
           x = parseFloat(parent.getAttribute('x') || x);
           y = parseFloat(parent.getAttribute('y') || y);
+          
+          // ניתוח transform
           const transform = parent.getAttribute('transform');
-          if (transform && transform.includes('translate')) {
-            const match = transform.match(/translate\(([^,)]+)[,\s]([^)]+)\)/);
-            if (match) {
-              x += parseFloat(match[1]) || 0;
-              y += parseFloat(match[2]) || 0;
+          if (transform) {
+            const translateMatch = transform.match(/translate\s*\(\s*([^,\s)]+)[\s,]+([^)]+)\s*\)/);
+            if (translateMatch) {
+              x += parseFloat(translateMatch[1]) || 0;
+              y += parseFloat(translateMatch[2]) || 0;
+            }
+            const matrixMatch = transform.match(/matrix\s*\(\s*[^,\s)]+[\s,]+[^,\s)]+[\s,]+[^,\s)]+[\s,]+[^,\s)]+[\s,]+([^,\s)]+)[\s,]+([^)]+)\s*\)/);
+            if (matrixMatch) {
+              x += parseFloat(matrixMatch[1]) || 0;
+              y += parseFloat(matrixMatch[2]) || 0;
             }
           }
+          
           parent = parent.parentElement;
+          depth++;
           if (parent === svgElement) break;
         }
       }
       
-      // גיבוי: getBBox אם זמין
+      // גיבוי: getBBox
       if ((x === 0 && y === 0) || isNaN(x) || isNaN(y)) {
         try {
           const bbox = textEl.getBBox();
@@ -554,46 +600,59 @@ function findStationPositions(svgElement) {
       
       if (x > 0 && y > 0 && isFinite(x) && isFinite(y)) {
         positions[stationName] = { x, y };
-        console.log(`✓ Found "${stationName}" at (${x.toFixed(1)}, ${y.toFixed(1)}) via text analysis`);
+        console.log(`✓ Found "${stationName}" at (${x.toFixed(1)}, ${y.toFixed(1)}) via enhanced text analysis`);
       }
     }
   }
   
-  // אסטרטגיה 2: חיפוש עיגולים וקווי חיבור
-  const circles = svgElement.querySelectorAll('circle');
-  const lines = svgElement.querySelectorAll('line, path');
-  console.log(`Found ${circles.length} circles and ${lines.length} lines/paths`);
+  // אסטרטגיה 2: חיפוש נתונים גאומטריים (עיגולים, נקודות)
+  const geometricElements = svgElement.querySelectorAll('circle, ellipse, rect[width="8"], rect[height="8"], use, symbol');
+  console.log(`Found ${geometricElements.length} geometric elements for station markers`);
   
-  for (const circle of circles) {
-    const cx = parseFloat(circle.getAttribute('cx') || '0');
-    const cy = parseFloat(circle.getAttribute('cy') || '0');
-    const r = parseFloat(circle.getAttribute('r') || '0');
+  for (const element of geometricElements) {
+    let cx = parseFloat(element.getAttribute('cx') || element.getAttribute('x') || '0');
+    let cy = parseFloat(element.getAttribute('cy') || element.getAttribute('y') || '0');
     
-    if (isNaN(cx) || isNaN(cy) || cx <= 10 || cy <= 10 || r < 2 || r > 20) continue;
+    // בדיקת תקינות הקואורדינטות
+    if (isNaN(cx) || isNaN(cy) || cx <= 5 || cy <= 5 || cx > 1200 || cy > 600) continue;
     
-    // חיפוש תגית title בקרבת העיגול
-    const parent = circle.parentElement;
-    let titleText = '';
+    // חיפוש טקסט קרוב או כותרות
+    let associatedText = '';
     
+    // בדיקה בהורה הישיר
+    const parent = element.closest('g, a, svg');
     if (parent) {
-      const titleEl = parent.querySelector('title');
-      if (titleEl) titleText = titleEl.textContent || '';
+      const nearbyText = parent.querySelector('text, title, desc');
+      if (nearbyText) associatedText = nearbyText.textContent || '';
       
-      // גם לחפש בקישור אם קיים
-      const link = parent.closest('a');
-      if (link) {
-        const linkTitle = link.getAttribute('title') || link.getAttribute('xlink:title') || '';
-        if (linkTitle) titleText = linkTitle;
+      // בדיקה בתגובות id או class
+      const id = parent.id || element.id || '';
+      const className = parent.className?.baseVal || element.className?.baseVal || '';
+      if (id || className) associatedText = `${associatedText} ${id} ${className}`.trim();
+    }
+    
+    // חיפוש טקסט בקרבה גאומטרית
+    if (!associatedText) {
+      const nearbyTexts = svgElement.querySelectorAll('text, tspan');
+      for (const textEl of nearbyTexts) {
+        const tx = parseFloat(textEl.getAttribute('x') || '0');
+        const ty = parseFloat(textEl.getAttribute('y') || '0');
+        const distance = Math.sqrt((tx - cx) ** 2 + (ty - cy) ** 2);
+        if (distance < 40) { // רדיוס חיפוש של 40 יחידות
+          associatedText = textEl.textContent || '';
+          break;
+        }
       }
     }
     
-    if (titleText) {
-      const normalized = NORM(titleText.replace(/\s*station\s*/gi, ''));
-      const stationName = STATION_ALIASES.get(normalized);
+    if (associatedText) {
+      const normalized = NORM(associatedText);
+      const stationName = STATION_ALIASES.get(normalized) || 
+                         [...wantedStations].find(s => NORM(s).includes(normalized) || normalized.includes(NORM(s)));
       
       if (stationName && wantedStations.has(stationName) && !positions[stationName]) {
         positions[stationName] = { x: cx, y: cy };
-        console.log(`✓ Found "${stationName}" at (${cx.toFixed(1)}, ${cy.toFixed(1)}) via circle+title`);
+        console.log(`✓ Found "${stationName}" at (${cx.toFixed(1)}, ${cy.toFixed(1)}) via geometric analysis`);
       }
     }
   }
@@ -662,7 +721,7 @@ async function loadWikiMapOnce(){
   }
 
   // הגדרת viewBox לשכבת ההדגשה
-  const vb = baseSvg.getAttribute("viewBox") || "0 0 1500 800";
+  const vb = baseSvg.getAttribute("viewBox") || "0 0 1150 555";
   __WIKI_VIEWBOX__ = vb;
   overlay.setAttribute("viewBox", vb);
   overlay.innerHTML = "";
