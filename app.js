@@ -428,21 +428,21 @@ async function loadWikiMapOnce(){
   console.info("stations resolved:", Object.keys(pos).length, "from", usedUrl);
 }
 
-// אם חילצנו מעט מדי תחנות, ננסה אוטומטית את ה-URL הבא ברשימה
+// אם חילצנו מעט מדי תחנות...
 if (Object.keys(__POS__).length < 10) {
   console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
   __WIKI_READY__ = false;
-  // הזזה של ה-URL הנוכחי לסוף הרשימה כדי שנספר הבא
   const i = WIKI_SVG_URLS.indexOf(usedUrl);
   if (i > -1) {
     const [cur] = WIKI_SVG_URLS.splice(i, 1);
     WIKI_SVG_URLS.push(cur);
   }
-  // ניקוי מחזיק, נסיון טעינה נוסף
   document.getElementById("wikiSvgHolder").innerHTML = "";
-  await loadWikiMapOnce(); // קריאה חוזרת עם ה-URL הבא
+  // ננסה שוב — אבל לא עם await ישיר, אלא עם then
+  loadWikiMapOnce().then(() => {
+    console.info("Retry with alternate SVG finished.");
+  });
 }
-
 
 /* ===== ציור/ניקוי הדגשה ===== */
 function clearOverlay(){ overlay.innerHTML = ""; }
