@@ -285,12 +285,10 @@ function renderResults(list){
 }
 
 /* ===== מפה: טעינת SVG מוויקיפדיה + חילוץ קואורדינטות ===== */
-/* ננסה קודם את ה-URL שנתת, ואם נכשל — גיבוי לקובץ אחר דומה. */
 const WIKI_SVG_URLS = [
   "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg", // עדיף – מכיל תוויות text
   "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg"             // גיבוי
 ];
-
 
 let __WIKI_READY__ = false;
 let __WIKI_VIEWBOX__ = "0 0 512 295";
@@ -327,68 +325,19 @@ async function loadWikiMapOnce(){
   const holder = document.getElementById("wikiSvgHolder");
   holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-slate-600">טוען מפה…</div>';
 
-  let txt, baseSvg;
-  let lastTriedUrl = null;
+  let txt, baseSvg, usedUrl;
 
   try {
     const r = await fetchTextWithFallback(WIKI_SVG_URLS);
     txt = r.txt;
-    lastTriedUrl = r.url;   // ← שומרים את ה-URL האחרון שנבחר
-    // ...
-    // המשך הטעינה + הזרקת baseSvg
-    // ...
+    usedUrl = r.url;
   } catch(e) {
     console.error("שגיאה בטעינת/ניתוח SVG:", e);
     holder.innerHTML = `<img src="${WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;">`;
     return;
   }
 
-  // === אחרי שבנינו pos ===
-  __POS__ = pos;
-  __WIKI_READY__ = true;
-
-  console.info(`stations resolved: ${Object.keys(pos).length} from ${lastTriedUrl}`);
-
-  // אם מעט מדי תחנות — ננסה שוב עם alternate
-  if (Object.keys(__POS__).length < 10) {
-    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
-    __WIKI_READY__ = false;
-    const i = WIKI_SVG_URLS.indexOf(lastTriedUrl);
-    if (i > -1) {
-      const [cur] = WIKI_SVG_URLS.splice(i, 1);
-      WIKI_SVG_URLS.push(cur);
-    }
-    document.getElementById("wikiSvgHolder").innerHTML = "";
-    loadWikiMapOnce().then(() => {
-      console.info("Retry with alternate SVG finished.");
-    });
-  }
-}
-
-  // === אחרי שבנינו pos ===
-  __POS__ = pos;
-  __WIKI_READY__ = true;
-
-  console.info(`stations resolved: ${Object.keys(pos).length} from ${lastTriedUrl}`);
-
-  // אם מעט מדי תחנות — ננסה שוב עם alternate
-  if (Object.keys(__POS__).length < 10) {
-    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
-    __WIKI_READY__ = false;
-    const i = WIKI_SVG_URLS.indexOf(lastTriedUrl);
-    if (i > -1) {
-      const [cur] = WIKI_SVG_URLS.splice(i, 1);
-      WIKI_SVG_URLS.push(cur);
-    }
-    document.getElementById("wikiSvgHolder").innerHTML = "";
-    loadWikiMapOnce().then(() => {
-      console.info("Retry with alternate SVG finished.");
-    });
-  }
-}
-
   // ננתח באמצעות DOMParser כדי לקבל <svg> תקני בדפדפנים
-  let baseSvg;
   try{
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
     baseSvg = doc.documentElement;
@@ -473,22 +422,22 @@ async function loadWikiMapOnce(){
   __POS__ = pos;
   __WIKI_READY__ = true;
   console.info("stations resolved:", Object.keys(pos).length, "from", usedUrl);
-}
 
-// אם חילצנו מעט מדי תחנות...
-if (Object.keys(__POS__).length < 10) {
-  console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
-  __WIKI_READY__ = false;
-  const i = WIKI_SVG_URLS.indexOf(usedUrl);
-  if (i > -1) {
-    const [cur] = WIKI_SVG_URLS.splice(i, 1);
-    WIKI_SVG_URLS.push(cur);
+  // אם חילצנו מעט מדי תחנות, ננסה עם SVG חלופי
+  if (Object.keys(__POS__).length < 10) {
+    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
+    __WIKI_READY__ = false;
+    const i = WIKI_SVG_URLS.indexOf(usedUrl);
+    if (i > -1) {
+      const [cur] = WIKI_SVG_URLS.splice(i, 1);
+      WIKI_SVG_URLS.push(cur);
+    }
+    document.getElementById("wikiSvgHolder").innerHTML = "";
+    // ננסה שוב
+    loadWikiMapOnce().then(() => {
+      console.info("Retry with alternate SVG finished.");
+    });
   }
-  document.getElementById("wikiSvgHolder").innerHTML = "";
-  // ננסה שוב — אבל לא עם await ישיר, אלא עם then
-  loadWikiMapOnce().then(() => {
-    console.info("Retry with alternate SVG finished.");
-  });
 }
 
 /* ===== ציור/ניקוי הדגשה ===== */
