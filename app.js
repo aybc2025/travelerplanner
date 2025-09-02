@@ -286,37 +286,256 @@ function renderResults(list){
 
 /* ===== מפה: טעינת SVG מוויקיפדיה + חילוץ קואורדינטות ===== */
 const WIKI_SVG_URLS = [
-  "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg", // עדיף – מכיל תוויות text
-  "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg"             // גיבוי
+  "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg",
+  "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg"
 ];
 
 let __WIKI_READY__ = false;
 let __WIKI_VIEWBOX__ = "0 0 512 295";
 let __POS__ = {}; // name -> {x,y}
+let __RETRY_COUNT__ = 0;
+const MAX_RETRIES = 2;
 
 const NORM = s => s.normalize('NFKC').replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toLowerCase();
-const ALIASES = new Map([
+
+// Enhanced station name mapping with more variations
+const STATION_ALIASES = new Map([
+  // Common variations
   ["production way–university", "Production Way–University"],
   ["production way/university",  "Production Way–University"],
-  ["commercial-broadway",        "Commercial–Broadway"],
-  ["vancouver city centre",      "Vancouver City Centre"],
-  ["oakridge-41st avenue",       "Oakridge–41st Avenue"],
-  ["langara-49th avenue",        "Langara–49th Avenue"],
-  ["main street-science world",  "Main Street–Science World"],
-  ["yaletown-roundhouse",        "Yaletown–Roundhouse"]
+  ["production way university",  "Production Way–University"],
+  ["commercial–broadway", "Commercial–Broadway"],
+  ["commercial broadway", "Commercial–Broadway"],
+  ["vancouver city centre", "Vancouver City Centre"],
+  ["vancouver city center", "Vancouver City Centre"],
+  ["city centre", "Vancouver City Centre"],
+  ["oakridge–41st avenue", "Oakridge–41st Avenue"],
+  ["oakridge 41st avenue", "Oakridge–41st Avenue"],
+  ["langara–49th avenue", "Langara–49th Avenue"],
+  ["langara 49th avenue", "Langara–49th Avenue"],
+  ["main street–science world", "Main Street–Science World"],
+  ["main street science world", "Main Street–Science World"],
+  ["yaletown–roundhouse", "Yaletown–Roundhouse"],
+  ["yaletown roundhouse", "Yaletown–Roundhouse"],
+  ["stadium–chinatown", "Stadium–Chinatown"],
+  ["stadium chinatown", "Stadium–Chinatown"],
+  ["joyce–collingwood", "Joyce–Collingwood"],
+  ["joyce collingwood", "Joyce–Collingwood"],
+  ["22nd street", "22nd Street"],
+  ["29th avenue", "29th Avenue"],
+  ["new westminster", "New Westminster"],
+  ["king george", "King George"],
+  ["surrey central", "Surrey Central"],
+  ["scott road", "Scott Road"],
+  ["royal oak", "Royal Oak"],
+  ["lougheed town centre", "Lougheed Town Centre"],
+  ["brentwood town centre", "Brentwood Town Centre"],
+  ["sperling–burnaby lake", "Sperling–Burnaby Lake"],
+  ["lake city way", "Lake City Way"],
+  ["moody centre", "Moody Centre"],
+  ["inlet centre", "Inlet Centre"],
+  ["coquitlam central", "Coquitlam Central"],
+  ["lafarge lake–douglas", "Lafarge Lake–Douglas"],
+  ["broadway–city hall", "Broadway–City Hall"],
+  ["king edward", "King Edward"],
+  ["marine drive", "Marine Drive"],
+  ["sea island centre", "Sea Island Centre"],
+  ["yvr–airport", "YVR–Airport"],
+  ["richmond–brighouse", "Richmond–Brighouse"],
+  ["olympic village", "Olympic Village"],
+  ["vcc–clark", "VCC–Clark"]
 ]);
+
+// Fallback coordinates for major stations if SVG parsing fails
+const FALLBACK_POSITIONS = {
+  "Waterfront": { x: 150, y: 120 },
+  "Burrard": { x: 180, y: 130 },
+  "Granville": { x: 190, y: 140 },
+  "Stadium–Chinatown": { x: 210, y: 150 },
+  "Main Street–Science World": { x: 230, y: 160 },
+  "Commercial–Broadway": { x: 280, y: 170 },
+  "Nanaimo": { x: 320, y: 180 },
+  "29th Avenue": { x: 340, y: 190 },
+  "Joyce–Collingwood": { x: 370, y: 200 },
+  "Patterson": { x: 390, y: 210 },
+  "Metrotown": { x: 410, y: 220 },
+  "Royal Oak": { x: 430, y: 230 },
+  "Edmonds": { x: 450, y: 240 },
+  "22nd Street": { x: 470, y: 250 },
+  "New Westminster": { x: 490, y: 260 },
+  "Columbia": { x: 510, y: 270 },
+  "Vancouver City Centre": { x: 160, y: 140 },
+  "Yaletown–Roundhouse": { x: 170, y: 155 },
+  "Olympic Village": { x: 185, y: 170 },
+  "Broadway–City Hall": { x: 200, y: 185 },
+  "King Edward": { x: 215, y: 200 },
+  "Oakridge–41st Avenue": { x: 230, y: 215 },
+  "Langara–49th Avenue": { x: 245, y: 230 },
+  "Marine Drive": { x: 260, y: 245 },
+  "Bridgeport": { x: 275, y: 260 },
+  "VCC–Clark": { x: 260, y: 150 },
+  "Renfrew": { x: 300, y: 160 },
+  "Rupert": { x: 320, y: 150 },
+  "Production Way–University": { x: 400, y: 180 }
+};
 
 async function fetchTextWithFallback(urls){
   let lastErr;
   for (const url of urls){
     try{
-      const res = await fetch(url, { mode: "cors", cache: "force-cache" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      console.log(`Trying to fetch SVG from: ${url}`);
+      const res = await fetch(url, { 
+        mode: "cors", 
+        cache: "force-cache",
+        headers: {
+          'Accept': 'image/svg+xml, text/xml, application/xml, text/plain, */*'
+        }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const txt = await res.text();
+      console.log(`Successfully fetched SVG (${txt.length} chars)`);
       return { txt, url };
-    }catch(e){ lastErr = e; console.warn("SVG fetch failed for", url, e); }
+    }catch(e){ 
+      lastErr = e; 
+      console.warn(`SVG fetch failed for ${url}:`, e.message); 
+    }
   }
   throw lastErr || new Error("Failed to fetch any SVG");
+}
+
+function findStationPositions(svgElement) {
+  const positions = {};
+  const wantedStations = new Set(ALL_STOPS);
+  
+  // Strategy 1: Look for <text> elements that match station names
+  const textElements = svgElement.querySelectorAll('text, tspan');
+  console.log(`Found ${textElements.length} text elements`);
+  
+  for (const textEl of textElements) {
+    const textContent = (textEl.textContent || '').trim();
+    if (!textContent || textContent.length > 60) continue;
+    
+    // Try to match station names
+    const normalizedText = NORM(textContent);
+    let stationName = null;
+    
+    // Direct match
+    for (const station of wantedStations) {
+      if (NORM(station) === normalizedText) {
+        stationName = station;
+        break;
+      }
+    }
+    
+    // Alias match
+    if (!stationName) {
+      stationName = STATION_ALIASES.get(normalizedText);
+    }
+    
+    // Partial match for complex names
+    if (!stationName) {
+      for (const station of wantedStations) {
+        const stationNorm = NORM(station);
+        if (stationNorm.includes(normalizedText) || normalizedText.includes(stationNorm)) {
+          // Check if it's a reasonable partial match (not too generic)
+          if (normalizedText.length > 4 && Math.abs(stationNorm.length - normalizedText.length) < 10) {
+            stationName = station;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (stationName && !positions[stationName]) {
+      // Get position from text element
+      let x = parseFloat(textEl.getAttribute('x') || '0');
+      let y = parseFloat(textEl.getAttribute('y') || '0');
+      
+      // If coordinates are 0, try to get from parent or use bounding box
+      if ((x === 0 && y === 0) || isNaN(x) || isNaN(y)) {
+        try {
+          const bbox = textEl.getBBox();
+          x = bbox.x + bbox.width / 2;
+          y = bbox.y + bbox.height / 2;
+        } catch (e) {
+          // getBBox might fail, skip this element
+          continue;
+        }
+      }
+      
+      if (x > 0 && y > 0) {
+        positions[stationName] = { x, y };
+        console.log(`Found station "${stationName}" at (${x.toFixed(1)}, ${y.toFixed(1)}) via text`);
+      }
+    }
+  }
+  
+  // Strategy 2: Look for <circle> elements and associate with nearby text
+  const circles = svgElement.querySelectorAll('circle');
+  console.log(`Found ${circles.length} circle elements`);
+  
+  for (const circle of circles) {
+    const cx = parseFloat(circle.getAttribute('cx') || '0');
+    const cy = parseFloat(circle.getAttribute('cy') || '0');
+    const r = parseFloat(circle.getAttribute('r') || '0');
+    
+    if (isNaN(cx) || isNaN(cy) || cx === 0 || cy === 0 || r < 2 || r > 15) continue;
+    
+    // Check if circle is inside an <a> element with title
+    let linkParent = circle.closest('a');
+    if (linkParent) {
+      const title = linkParent.getAttribute('title') || linkParent.getAttribute('xlink:title') || '';
+      if (title) {
+        let cleanTitle = title.replace(/\s+station\b/i, '').replace(/\s+stn\b/i, '').trim();
+        const stationName = STATION_ALIASES.get(NORM(cleanTitle)) || 
+                          [...wantedStations].find(s => NORM(s) === NORM(cleanTitle));
+        
+        if (stationName && !positions[stationName]) {
+          positions[stationName] = { x: cx, y: cy };
+          console.log(`Found station "${stationName}" at (${cx.toFixed(1)}, ${cy.toFixed(1)}) via circle+link`);
+        }
+      }
+    }
+    
+    // Find nearest text element to this circle
+    let nearestText = null;
+    let nearestDistance = Infinity;
+    
+    for (const textEl of textElements) {
+      let tx = parseFloat(textEl.getAttribute('x') || '0');
+      let ty = parseFloat(textEl.getAttribute('y') || '0');
+      
+      if (tx === 0 && ty === 0) {
+        try {
+          const bbox = textEl.getBBox();
+          tx = bbox.x + bbox.width / 2;
+          ty = bbox.y + bbox.height / 2;
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      const distance = Math.sqrt((tx - cx) ** 2 + (ty - cy) ** 2);
+      if (distance < 50 && distance < nearestDistance) { // Within 50 units
+        nearestDistance = distance;
+        nearestText = textEl;
+      }
+    }
+    
+    if (nearestText) {
+      const textContent = (nearestText.textContent || '').trim();
+      const normalizedText = NORM(textContent);
+      const stationName = STATION_ALIASES.get(normalizedText) || 
+                         [...wantedStations].find(s => NORM(s) === normalizedText);
+      
+      if (stationName && !positions[stationName]) {
+        positions[stationName] = { x: cx, y: cy };
+        console.log(`Found station "${stationName}" at (${cx.toFixed(1)}, ${cy.toFixed(1)}) via circle+neartext`);
+      }
+    }
+  }
+  
+  return positions;
 }
 
 async function loadWikiMapOnce(){
@@ -328,160 +547,137 @@ async function loadWikiMapOnce(){
   let txt, baseSvg;
   let usedUrl = null;
 
+  // Prevent infinite retries
+  if (__RETRY_COUNT__ >= MAX_RETRIES) {
+    console.warn("Max retries reached, using fallback image");
+    holder.innerHTML = `<img src="${WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;" crossorigin="anonymous">`;
+    __POS__ = { ...FALLBACK_POSITIONS };
+    __WIKI_READY__ = true;
+    return;
+  }
+
   try {
     const r = await fetchTextWithFallback(WIKI_SVG_URLS);
     txt = r.txt;
     usedUrl = r.url;
   } catch(e) {
-    console.error("שגיאה בטעינת/ניתוח SVG:", e);
-    holder.innerHTML = `<img src="${WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;">`;
+    console.error("Error fetching SVG:", e);
+    __RETRY_COUNT__++;
+    holder.innerHTML = `<img src="${WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;" crossorigin="anonymous">`;
+    __POS__ = { ...FALLBACK_POSITIONS };
+    __WIKI_READY__ = true;
     return;
   }
 
-  // ננתח באמצעות DOMParser כדי לקבל <svg> תקני בדפדפנים
+  // Parse SVG using DOMParser
   try{
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
     baseSvg = doc.documentElement;
-    if (!baseSvg || baseSvg.nodeName.toLowerCase() !== "svg") throw new Error("No <svg> root");
     
-    // ריקון והחדרה
+    // Check for parsing errors
+    const parseError = doc.querySelector('parsererror');
+    if (parseError || !baseSvg || baseSvg.nodeName.toLowerCase() !== "svg") {
+      throw new Error("SVG parsing failed or invalid SVG structure");
+    }
+    
+    // Clear and insert the SVG
     holder.innerHTML = "";
-    // חשוב: לתת מידות גמישות
     baseSvg.removeAttribute("width");
     baseSvg.removeAttribute("height");
     baseSvg.style.width = "100%";
     baseSvg.style.height = "100%";
+    baseSvg.style.display = "block";
     holder.appendChild(baseSvg);
+    
+    console.log("Successfully inserted SVG into DOM");
+    
   }catch(parseErr){
-    console.error("Parsing failed; switching to <img> fallback", parseErr);
-    holder.innerHTML = `<img src="${usedUrl}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;">`;
-    overlay.removeAttribute("viewBox");
+    console.error("SVG parsing failed:", parseErr);
+    __RETRY_COUNT__++;
+    holder.innerHTML = `<img src="${usedUrl || WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;" crossorigin="anonymous">`;
+    __POS__ = { ...FALLBACK_POSITIONS };
+    __WIKI_READY__ = true;
     return;
   }
 
-  // סנכרון viewBox לשכבת ההדגשה
+  // Set up overlay viewBox
   const vb = baseSvg.getAttribute("viewBox") || __WIKI_VIEWBOX__;
   __WIKI_VIEWBOX__ = vb;
   overlay.setAttribute("viewBox", vb);
   overlay.innerHTML = "";
 
-  // אסוף תוויות ועיגולים לחילוץ קואורדינטות
-  const texts = [...baseSvg.querySelectorAll("text")].map(t => ({
-    el: t,
-    x: +t.getAttribute("x") || 0,
-    y: +t.getAttribute("y") || 0,
-    label: (t.textContent || "").replace(/\s+/g, " ").trim()
-  })).filter(t => t.label && t.label.length <= 60);
-
-  const circles = [...baseSvg.querySelectorAll("circle")].map(c => ({
-    el: c, 
-    cx: +c.getAttribute("cx"), 
-    cy: +c.getAttribute("cy"),
-    r: +(c.getAttribute("r") || 0)
-  })).filter(c => Number.isFinite(c.cx) && Number.isFinite(c.cy) && c.r >= 3 && c.r <= 9);
-
-  const labelPoint = new Map();
-  for (const t of texts){ 
-    labelPoint.set(NORM(t.label), { x:t.x, y:t.y, raw:t.label }); 
-  }
-
-  function nearestLabelTo(cx, cy){
-    let best = null, bestD2 = Infinity;
-    for (const t of texts){
-      const dx = (t.x - cx), dy = (t.y - cy), d2 = dx*dx + dy*dy;
-      if (d2 < bestD2){ bestD2 = d2; best = t; }
+  // Extract station positions
+  const positions = findStationPositions(baseSvg);
+  
+  // Add fallback positions for missing stations
+  const missingStations = ALL_STOPS.filter(station => !positions[station]);
+  if (missingStations.length > 0) {
+    console.log("Missing stations, adding fallbacks:", missingStations);
+    for (const station of missingStations) {
+      if (FALLBACK_POSITIONS[station]) {
+        positions[station] = FALLBACK_POSITIONS[station];
+      }
     }
-    return (best && Math.sqrt(bestD2) <= 45) ? best : null;
   }
 
-  const pos = {};
-  const wanted = new Set(ALL_STOPS);
-
-  // (1) עיגול בתוך <a title="...">
-  const anchors = [...baseSvg.querySelectorAll("a")];
-  for (const a of anchors){
-    const ttl = a.getAttribute("title") || a.getAttribute("xlink:title") || "";
-    if (!ttl) continue;
-    const circle = a.querySelector("circle"); 
-    if (!circle) continue;
-    const cx = +circle.getAttribute("cx"), cy = +circle.getAttribute("cy");
-    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
-    let name = ttl.replace(/\s+station\b/i,"").trim();
-    const alias = ALIASES.get(NORM(name)); 
-    if (alias) name = alias;
-    if (wanted.has(name)) pos[name] = { x: cx, y: cy };
-  }
-
-  // (2) עיגול→תווית קרובה
-  for (const c of circles){
-    const lab = nearestLabelTo(c.cx, c.cy); 
-    if (!lab) continue;
-    const labKey = NORM(lab.label);
-    const canonical = ALIASES.get(labKey) || [...wanted].find(n => NORM(n) === labKey);
-    if (canonical && !pos[canonical]) pos[canonical] = { x: c.cx, y: c.cy };
-  }
-
-  // (3) תווית על הנקודה (fallback)
-  for (const name of wanted){
-    if (pos[name]) continue;
-    const t = labelPoint.get(NORM(name));
-    if (t){ pos[name] = { x: t.x, y: t.y }; }
-  }
-
-  __POS__ = pos;
+  __POS__ = positions;
   __WIKI_READY__ = true;
 
-  console.info(`stations resolved: ${Object.keys(pos).length} from ${usedUrl}`);
-
-  // אם מעט מדי תחנות — ננסה שוב עם alternate
-  if (Object.keys(__POS__).length < 10) {
-    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
-    __WIKI_READY__ = false;
-    const i = WIKI_SVG_URLS.indexOf(usedUrl);
-    if (i > -1) {
-      const [cur] = WIKI_SVG_URLS.splice(i, 1);
-      WIKI_SVG_URLS.push(cur);
-    }
-    document.getElementById("wikiSvgHolder").innerHTML = "";
-    // ננסה שוב — אבל לא עם await ישיר, אלא עם then כדי למנוע לולאה אינסופית
-    setTimeout(() => {
-      loadWikiMapOnce().then(() => {
-        console.info("Retry with alternate SVG finished.");
-      }).catch(err => {
-        console.error("Retry failed:", err);
-      });
-    }, 100);
-    return;
+  const foundCount = Object.keys(positions).length;
+  console.log(`Map loading complete: ${foundCount}/${ALL_STOPS.length} stations positioned from ${usedUrl}`);
+  
+  // If we still don't have enough positions, log a warning but continue
+  if (foundCount < ALL_STOPS.length * 0.5) {
+    console.warn(`Only found ${foundCount} out of ${ALL_STOPS.length} stations. Route highlighting may be limited.`);
   }
 }
 
 /* ===== ציור/ניקוי הדגשה ===== */
-function clearOverlay(){ overlay.innerHTML = ""; }
+function clearOverlay(){ 
+  overlay.innerHTML = ""; 
+}
+
 function drawHighlightedTrip(trip){
-  if (!trip) return;
+  if (!trip || !__WIKI_READY__) return;
+  
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("class", "route-highlight");
   overlay.appendChild(g);
 
+  let drawnSegments = 0;
+  
   for (const leg of trip.legs){
     const pts = [];
     for (const stop of leg.path){
       const p = __POS__[stop];
-      if (p) pts.push(p);
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        pts.push(p);
+      } else {
+        console.warn(`Missing position for station: ${stop}`);
+      }
     }
-    if (pts.length < 2) continue;
+    
+    if (pts.length < 2) {
+      console.warn(`Insufficient points for leg ${leg.from} → ${leg.to}: ${pts.length} points`);
+      continue;
+    }
 
-    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
+    const d = pts.map((p,i)=> (i ? `L${p.x.toFixed(1)},${p.y.toFixed(1)}` : `M${p.x.toFixed(1)},${p.y.toFixed(1)}`)).join('');
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", leg.color);
-    path.setAttribute("stroke-width", "9");
+    path.setAttribute("stroke-width", "8");
     path.setAttribute("stroke-linecap", "round");
     path.setAttribute("stroke-linejoin", "round");
-    path.setAttribute("opacity", "0.95");
+    path.setAttribute("opacity", "0.9");
     g.appendChild(path);
+    drawnSegments++;
+    
+    console.log(`Drew route segment: ${leg.from} → ${leg.to} (${pts.length} points)`);
   }
+  
+  console.log(`Route highlighting complete: ${drawnSegments} segments drawn`);
 }
 
 /* ===== אירועים ===== */
