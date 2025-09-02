@@ -325,7 +325,8 @@ async function loadWikiMapOnce(){
   const holder = document.getElementById("wikiSvgHolder");
   holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-slate-600">טוען מפה…</div>';
 
-  let txt, baseSvg, usedUrl;
+  let txt, baseSvg;
+  let usedUrl = null;
 
   try {
     const r = await fetchTextWithFallback(WIKI_SVG_URLS);
@@ -342,6 +343,7 @@ async function loadWikiMapOnce(){
     const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
     baseSvg = doc.documentElement;
     if (!baseSvg || baseSvg.nodeName.toLowerCase() !== "svg") throw new Error("No <svg> root");
+    
     // ריקון והחדרה
     holder.innerHTML = "";
     // חשוב: לתת מידות גמישות
@@ -372,12 +374,85 @@ async function loadWikiMapOnce(){
   })).filter(t => t.label && t.label.length <= 60);
 
   const circles = [...baseSvg.querySelectorAll("circle")].map(c => ({
-    el: c, cx: +c.getAttribute("cx"), cy: +c.getAttribute("cy"),
+    el: c, 
+    cx: +c.getAttribute("cx"), 
+    cy: +c.getAttribute("cy"),
     r: +(c.getAttribute("r") || 0)
   })).filter(c => Number.isFinite(c.cx) && Number.isFinite(c.cy) && c.r >= 3 && c.r <= 9);
 
   const labelPoint = new Map();
-  for (const t of texts){ labelPoint.set(NORM(t.label), { x:t.x, y:t.y, raw:t.label }); }
+  for (const t of texts){ 
+    labelPoint.set(NORM(t.label), { x:t.x, y:t.y, raw:t.label }); 
+  }
+
+  function nearestLabelTo(cx, cy){
+    let best = null, bestD2 = Infinity;
+    for (const t of texts){
+      const dx = (t.x - cx), dy = (t.y - cy), d2 = dx*dx + dy*dy;
+      if (d2 < bestD2){ bestD2 = d2; best = t; }
+    }
+    return (best && Math.sqrt(bestD2) <= 45) ? best : null;
+  }
+
+  const pos = {};
+  const wanted = new Set(ALL_STOPS);
+
+  // (1) עיגול בתוך <a title="...">
+  const anchors = [...baseSvg.querySelectorAll("a")];
+  for (const a of anchors){
+    const ttl = a.getAttribute("title") || a.getAttribute("xlink:title") || "";
+    if (!ttl) continue;
+    const circle = a.querySelector("circle"); 
+    if (!circle) continue;
+    const cx = +circle.getAttribute("cx"), cy = +circle.getAttribute("cy");
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    let name = ttl.replace(/\s+station\b/i,"").trim();
+    const alias = ALIASES.get(NORM(name)); 
+    if (alias) name = alias;
+    if (wanted.has(name)) pos[name] = { x: cx, y: cy };
+  }
+
+  // (2) עיגול→תווית קרובה
+  for (const c of circles){
+    const lab = nearestLabelTo(c.cx, c.cy); 
+    if (!lab) continue;
+    const labKey = NORM(lab.label);
+    const canonical = ALIASES.get(labKey) || [...wanted].find(n => NORM(n) === labKey);
+    if (canonical && !pos[canonical]) pos[canonical] = { x: c.cx, y: c.cy };
+  }
+
+  // (3) תווית על הנקודה (fallback)
+  for (const name of wanted){
+    if (pos[name]) continue;
+    const t = labelPoint.get(NORM(name));
+    if (t){ pos[name] = { x: t.x, y: t.y }; }
+  }
+
+  // === אחרי שבנינו pos ===
+  __POS__ = pos;
+  __WIKI_READY__ = true;
+
+  console.info(`stations resolved: ${Object.keys(pos).length} from ${usedUrl}`);
+
+  // אם מעט מדי תחנות — ננסה שוב עם alternate
+  if (Object.keys(__POS__).length < 10) {
+    console.warn("Few/no stations resolved; retrying with alternate SVG URL...");
+    __WIKI_READY__ = false;
+    const i = WIKI_SVG_URLS.indexOf(usedUrl);
+    if (i > -1) {
+      const [cur] = WIKI_SVG_URLS.splice(i, 1);
+      WIKI_SVG_URLS.push(cur);
+    }
+    document.getElementById("wikiSvgHolder").innerHTML = "";
+    // ננסה שוב — אבל לא עם await ישיר, אלא עם then כדי למנוע לולאה אינסופית
+    setTimeout(() => {
+      loadWikiMapOnce().then(() => {
+        console.info("Retry with alternate SVG finished.");
+      });
+    }, 100);
+    return;
+  }
+}
 
   function nearestLabelTo(cx, cy){
     let best = null, bestD2 = Infinity;
