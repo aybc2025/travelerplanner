@@ -451,81 +451,81 @@ const STATION_ALIASES = new Map([
   ["brighouse", "Richmond–Brighouse"]
 ]);
 
-// קואורדינטות מתוקנות על בסיס ניתוח חזותי של המפה הנראית בתמונה
+// קואורדינטות מתוקנות על בסיס viewBox אמיתי: 1109×639 ונקודת ייחוס Scott Road ב-(838.7, 422.3)
 const ACCURATE_POSITIONS = {
   // ====== EXPO LINE ====== (קו כחול כהה)
-  // מסלול מרכזי: Waterfront -> Columbia  
-  "Waterfront": { x: 350, y: 200 },
-  "Burrard": { x: 320, y: 220 },  
-  "Granville": { x: 290, y: 240 },
-  "Stadium–Chinatown": { x: 380, y: 260 },
-  "Main Street–Science World": { x: 420, y: 280 },
-  "Commercial–Broadway": { x: 500, y: 310 }, // תחנת החלפה מרכזית
-  "Nanaimo": { x: 560, y: 340 },
-  "29th Avenue": { x: 600, y: 360 },
-  "Joyce–Collingwood": { x: 650, y: 380 },
-  "Patterson": { x: 700, y: 400 },
-  "Metrotown": { x: 750, y: 420 },
-  "Royal Oak": { x: 800, y: 440 },
-  "Edmonds": { x: 850, y: 460 },
-  "22nd Street": { x: 900, y: 480 },
-  "New Westminster": { x: 950, y: 500 },
-  "Columbia": { x: 1000, y: 520 },
+  // מסלול מערבי: Waterfront -> Columbia  
+  "Waterfront": { x: 330, y: 140 }, // שמאל עליון
+  "Burrard": { x: 310, y: 160 },   // קצת שמאלה ומטה
+  "Granville": { x: 290, y: 180 }, // עוד שמאלה ומטה  
+  "Stadium–Chinatown": { x: 360, y: 200 }, // חזרה ימינה
+  "Main Street–Science World": { x: 380, y: 220 }, // ימינה ומטה
+  "Commercial–Broadway": { x: 410, y: 250 }, // תחנת החלפה מרכזית
+  "Nanaimo": { x: 450, y: 280 },
+  "29th Avenue": { x: 480, y: 300 },
+  "Joyce–Collingwood": { x: 520, y: 330 },
+  "Patterson": { x: 560, y: 360 },
+  "Metrotown": { x: 600, y: 390 },
+  "Royal Oak": { x: 640, y: 420 },
+  "Edmonds": { x: 680, y: 450 },
+  "22nd Street": { x: 720, y: 470 },
+  "New Westminster": { x: 760, y: 490 },
+  "Columbia": { x: 800, y: 510 },
 
-  // ענף דרומי: Columbia -> King George (בצד הימני התחתון)
-  "Scott Road": { x: 1050, y: 480 },
-  "Gateway": { x: 1100, y: 440 },
-  "Surrey Central": { x: 1150, y: 400 },
-  "King George": { x: 1200, y: 360 },
+  // ענף דרומי: Columbia -> King George (מ-Scott Road שידוע)
+  "Scott Road": { x: 838.7, y: 422.3 }, // הקואורדינטה הידועה
+  "Gateway": { x: 880, y: 380 },
+  "Surrey Central": { x: 920, y: 340 },
+  "King George": { x: 960, y: 300 },
 
-  // ענף צפון-מזרחי: Columbia -> Production Way (בצד הימני העליון)
-  "Sapperton": { x: 1020, y: 500 },
-  "Braid": { x: 1040, y: 480 },
-  "Lougheed Town Centre": { x: 1080, y: 460 },
-  "Production Way–University": { x: 1120, y: 440 },
+  // ענף צפון-מזרחי: Columbia -> Production Way  
+  "Sapperton": { x: 820, y: 490 },
+  "Braid": { x: 850, y: 470 },
+  "Lougheed Town Centre": { x: 890, y: 450 },
+  "Production Way–University": { x: 930, y: 430 },
 
   // ====== CANADA LINE ====== (קו כחול בהיר - בצד שמאל)
-  "Vancouver City Centre": { x: 320, y: 180 },
-  "Yaletown–Roundhouse": { x: 300, y: 210 },
-  "Olympic Village": { x: 280, y: 250 },
-  "Broadway–City Hall": { x: 260, y: 290 },
-  "King Edward": { x: 240, y: 330 },
-  "Oakridge–41st Avenue": { x: 220, y: 370 },
-  "Langara–49th Avenue": { x: 200, y: 410 },
-  "Marine Drive": { x: 180, y: 450 },
-  "Bridgeport": { x: 160, y: 490 },
+  "Vancouver City Centre": { x: 310, y: 120 },
+  "Yaletown–Roundhouse": { x: 290, y: 150 },
+  "Olympic Village": { x: 270, y: 190 },
+  "Broadway–City Hall": { x: 250, y: 230 },
+  "King Edward": { x: 230, y: 270 },
+  "Oakridge–41st Avenue": { x: 210, y: 310 },
+  "Langara–49th Avenue": { x: 190, y: 350 },
+  "Marine Drive": { x: 170, y: 390 },
+  "Bridgeport": { x: 150, y: 430 },
 
-  // ענף מערבי: לנמל התעופה (שמאל למטה)
-  "Templeton": { x: 140, y: 510 },
-  "Sea Island Centre": { x: 120, y: 530 },
-  "YVR–Airport": { x: 100, y: 550 },
+  // ענף מערבי: לנמל התעופה
+  "Templeton": { x: 130, y: 450 },
+  "Sea Island Centre": { x: 110, y: 470 },
+  "YVR–Airport": { x: 90, y: 490 },
 
-  // ענף דרומי: לריצ'מונד (מרכז למטה)  
-  "Aberdeen": { x: 180, y: 510 },
-  "Lansdowne": { x: 200, y: 530 },
-  "Richmond–Brighouse": { x: 220, y: 550 },
+  // ענף דרומי: לריצ'מונד  
+  "Aberdeen": { x: 170, y: 450 },
+  "Lansdowne": { x: 190, y: 470 },
+  "Richmond–Brighouse": { x: 210, y: 490 },
 
   // ====== MILLENNIUM LINE ====== (קו צהוב - חלק עליון)
-  "VCC–Clark": { x: 450, y: 250 },
+  "VCC–Clark": { x: 390, y: 190 },
   // Commercial–Broadway משותף - כבר מוגדר למעלה
 
   // מסלול מזרחי: Commercial-Broadway -> Production Way (חלק עליון)
-  "Renfrew": { x: 540, y: 290 },
-  "Rupert": { x: 580, y: 270 },
-  "Gilmore": { x: 620, y: 250 },
-  "Brentwood Town Centre": { x: 660, y: 230 },
-  "Holdom": { x: 700, y: 210 },
-  "Sperling–Burnaby Lake": { x: 740, y: 190 },
-  "Lake City Way": { x: 780, y: 170 },
+  "Renfrew": { x: 450, y: 230 },
+  "Rupert": { x: 490, y: 210 },
+  "Gilmore": { x: 530, y: 190 },
+  "Brentwood Town Centre": { x: 570, y: 170 },
+  "Holdom": { x: 610, y: 150 },
+  "Sperling–Burnaby Lake": { x: 650, y: 130 },
+  "Lake City Way": { x: 690, y: 110 },
   // Production Way–University משותף - כבר מוגדר
   
-  // המשך מזרחה: Lougheed -> Lafarge Lake (קו צהוב מזרחי עליון)
-  "Burquitlam": { x: 1160, y: 420 },
-  "Moody Centre": { x: 1200, y: 400 },
-  "Inlet Centre": { x: 1240, y: 380 },
-  "Coquitlam Central": { x: 1280, y: 360 },
-  "Lincoln": { x: 1320, y: 340 },
-  "Lafarge Lake–Douglas": { x: 1360, y: 320 }
+  // המשך מזרחה: Lougheed -> Lafarge Lake (קו צהוב מזרחי)
+  "Burquitlam": { x: 970, y: 410 },
+  "Moody Centre": { x: 1010, y: 390 },
+  "Inlet Centre": { x: 1050, y: 370 },
+  "Coquitlam Central": { x: 1090, y: 350 },
+  "Lincoln": { x: 1130, y: 330 },
+  "Lafarge Lake–Douglas": { x: 1170, y: 310 }
 };
 
 async function fetchTextWithFallback(urls){
@@ -825,26 +825,6 @@ function drawHighlightedTrip(trip){
   g.setAttribute("class", "route-highlight");
   overlay.appendChild(g);
 
-  // הוספת רקע לבדיקה (יוסר אחרי הבדיקה)
-  const debugRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  debugRect.setAttribute("x", "0");
-  debugRect.setAttribute("y", "0");
-  debugRect.setAttribute("width", "100");
-  debugRect.setAttribute("height", "50");
-  debugRect.setAttribute("fill", "rgba(255, 0, 0, 0.3)");
-  debugRect.setAttribute("stroke", "red");
-  debugRect.setAttribute("stroke-width", "2");
-  g.appendChild(debugRect);
-  
-  const debugText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  debugText.setAttribute("x", "10");
-  debugText.setAttribute("y", "30");
-  debugText.setAttribute("fill", "red");
-  debugText.setAttribute("font-size", "14");
-  debugText.setAttribute("font-weight", "bold");
-  debugText.textContent = "TEST OVERLAY";
-  g.appendChild(debugText);
-
   let drawnSegments = 0;
   let totalStations = 0;
   
@@ -867,7 +847,7 @@ function drawHighlightedTrip(trip){
         console.log(`     ${stopIndex + 1}. ${stop}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}) ✅`);
       } else {
         missingStations.push(stop);
-        console.warn(`     ${stopIndex + 1}. ${stop}: MISSING/INVALID POSITION ❌`, pos);
+        console.warn(`     ${stopIndex + 1}. ${stop}: MISSING/INVALID POSITION ❌`);
       }
     }
     
@@ -880,29 +860,7 @@ function drawHighlightedTrip(trip){
       continue;
     }
 
-    // יצירת נתיב SVG עם נקודות בדיקה
-    for (const [i, point] of validPoints.entries()) {
-      // נקודה לבדיקת מיקום
-      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      dot.setAttribute("cx", point.x);
-      dot.setAttribute("cy", point.y);
-      dot.setAttribute("r", "3");
-      dot.setAttribute("fill", i === 0 ? "lime" : i === validPoints.length - 1 ? "red" : "orange");
-      dot.setAttribute("stroke", "white");
-      dot.setAttribute("stroke-width", "1");
-      g.appendChild(dot);
-      
-      // תווית תחנה
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", point.x + 5);
-      label.setAttribute("y", point.y - 5);
-      label.setAttribute("fill", "black");
-      label.setAttribute("font-size", "8");
-      label.setAttribute("font-weight", "bold");
-      label.textContent = point.station.split('–')[0];
-      g.appendChild(label);
-    }
-
+    // קו המסלול הראשי
     const pathCommands = validPoints.map((p, i) => 
       i === 0 ? `M${p.x.toFixed(1)},${p.y.toFixed(1)}` : `L${p.x.toFixed(1)},${p.y.toFixed(1)}`
     );
@@ -914,17 +872,85 @@ function drawHighlightedTrip(trip){
     path.setAttribute("d", d);
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", leg.color);
-    path.setAttribute("stroke-width", "4");
+    path.setAttribute("stroke-width", "6");
     path.setAttribute("stroke-linecap", "round");
     path.setAttribute("stroke-linejoin", "round");
-    path.setAttribute("opacity", "0.8");
+    path.setAttribute("opacity", "0.9");
     
+    // הבדלה חזותית בין רגליים
     if (legIndex > 0) {
-      path.setAttribute("stroke-dasharray", "8,4");
-      path.setAttribute("stroke-width", "3");
+      path.setAttribute("stroke-dasharray", "12,6");
+      path.setAttribute("stroke-width", "5");
     }
     
     g.appendChild(path);
+    
+    // עיגולים לתחנות מפתח בלבד
+    if (legIndex === 0) {
+      // תחנת מוצא - ירוק גדול
+      const startCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      startCircle.setAttribute("cx", validPoints[0].x);
+      startCircle.setAttribute("cy", validPoints[0].y);
+      startCircle.setAttribute("r", "8");
+      startCircle.setAttribute("fill", "#10b981");
+      startCircle.setAttribute("stroke", "white");
+      startCircle.setAttribute("stroke-width", "3");
+      g.appendChild(startCircle);
+      
+      // תווית מוצא
+      const startText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      startText.setAttribute("x", validPoints[0].x + 12);
+      startText.setAttribute("y", validPoints[0].y + 5);
+      startText.setAttribute("fill", "#065f46");
+      startText.setAttribute("font-size", "12");
+      startText.setAttribute("font-weight", "bold");
+      startText.textContent = `START`;
+      g.appendChild(startText);
+    }
+    
+    if (legIndex === trip.legs.length - 1) {
+      // תחנת יעד - אדום גדול
+      const endCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const lastPoint = validPoints[validPoints.length - 1];
+      endCircle.setAttribute("cx", lastPoint.x);
+      endCircle.setAttribute("cy", lastPoint.y);
+      endCircle.setAttribute("r", "8");
+      endCircle.setAttribute("fill", "#dc2626");
+      endCircle.setAttribute("stroke", "white");
+      endCircle.setAttribute("stroke-width", "3");
+      g.appendChild(endCircle);
+      
+      // תווית יעד
+      const endText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      endText.setAttribute("x", lastPoint.x + 12);
+      endText.setAttribute("y", lastPoint.y + 5);
+      endText.setAttribute("fill", "#7f1d1d");
+      endText.setAttribute("font-size", "12");
+      endText.setAttribute("font-weight", "bold");
+      endText.textContent = `END`;
+      g.appendChild(endText);
+    } else {
+      // תחנת החלפה - כתום
+      const transferCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const lastPoint = validPoints[validPoints.length - 1];
+      transferCircle.setAttribute("cx", lastPoint.x);
+      transferCircle.setAttribute("cy", lastPoint.y);
+      transferCircle.setAttribute("r", "6");
+      transferCircle.setAttribute("fill", "#f59e0b");
+      transferCircle.setAttribute("stroke", "white");
+      transferCircle.setAttribute("stroke-width", "2");
+      g.appendChild(transferCircle);
+      
+      // תווית החלפה
+      const transferText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      transferText.setAttribute("x", lastPoint.x + 10);
+      transferText.setAttribute("y", lastPoint.y + 4);
+      transferText.setAttribute("fill", "#92400e");
+      transferText.setAttribute("font-size", "10");
+      transferText.setAttribute("font-weight", "bold");
+      transferText.textContent = `TRANSFER`;
+      g.appendChild(transferText);
+    }
     
     drawnSegments++;
     totalStations += validPoints.length;
@@ -939,7 +965,7 @@ function drawHighlightedTrip(trip){
     errorMsg.setAttribute("fill", "red");
     errorMsg.setAttribute("font-size", "16");
     errorMsg.setAttribute("font-weight", "bold");
-    errorMsg.textContent = "ERROR: No valid route segments";
+    errorMsg.textContent = "ERROR: Route display failed";
     g.appendChild(errorMsg);
   } else {
     console.log(`🎉 Route highlighting complete: ${drawnSegments}/${trip.legs.length} segments drawn, ${totalStations} total stations`);
