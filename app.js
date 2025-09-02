@@ -1,946 +1,482 @@
-// PDF Parser for Schedule Import
-// מנתח PDF לייבוא אירועים ללוח השנה
+/* ===========================================================
+   SkyTrain MVP (Expo, Millennium, Canada) — גרסה מלאה
+   - מסלולים: גרף, עד 2 החלפות, headway+שעות שירות
+   - מפה סכמטית: טעינת SVG מוויקיפדיה, חילוץ x,y לכל תחנה, הדגשת מסלול
+   - Fallback: <img> תמידית אם ה-SVG לא מוצג
+=========================================================== */
 
-// Configure PDF.js - using global variable since it's loaded as script
-const pdfjsLib = window.pdfjsLib;
-if (pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* ===== קווים וזמני שירות ===== */
+const LINE_META = {
+  EXPO: { id:"EXPO", name:"Expo Line", color:"#0060A9",
+    headways:[{start:"05:00",end:"06:59",mins:8},{start:"07:00",end:"09:59",mins:4},{start:"10:00",end:"15:59",mins:6},{start:"16:00",end:"18:59",mins:4},{start:"19:00",end:"25:15",mins:8}],
+    firstTrain:"05:00", lastTrain:"25:15"
+  },
+  MILL: { id:"MILL", name:"Millennium Line", color:"#FDB515",
+    headways:[{start:"05:00",end:"06:59",mins:8},{start:"07:00",end:"09:59",mins:5},{start:"10:00",end:"15:59",mins:6},{start:"16:00",end:"18:59",mins:5},{start:"19:00",end:"25:15",mins:8}],
+    firstTrain:"05:00", lastTrain:"25:15"
+  },
+  CAN:  { id:"CAN",  name:"Canada Line", color:"#00B7C3",
+    headways:[{start:"05:00",end:"06:59",mins:6},{start:"07:00",end:"09:59",mins:4},{start:"10:00",end:"15:59",mins:5},{start:"16:00",end:"18:59",mins:4},{start:"19:00",end:"25:15",mins:6}],
+    firstTrain:"05:00", lastTrain:"25:15"
+  }
+};
+
+/* ===== עזרי זמן ===== */
+const pad2 = n => String(n).padStart(2,"0");
+function toMinutesWrap(hhmm){ const [h,m]=hhmm.split(":").map(Number); return ((h%24)*60+m)+(h>=24?1440:0); }
+const toHHMM = mins => `${pad2(Math.floor((mins%1440)/60))}:${pad2(mins%60)}`;
+function headwayFor(lineId, depMins){
+  const meta = LINE_META[lineId]; const t = depMins % 1440; const t2 = (depMins<1440)? t : t+1440;
+  for (const w of meta.headways){
+    const s = toMinutesWrap(w.start), e = toMinutesWrap(w.end);
+    if (s<=t2 && t2<=e) return w.mins;
+  }
+  return meta.headways.at(-1).mins;
+}
+function scheduleDeparture(lineId, earliest){
+  const meta = LINE_META[lineId];
+  const first = toMinutesWrap(meta.firstTrain), last = toMinutesWrap(meta.lastTrain);
+  let depart = Math.max(earliest, first);
+  if (depart > last) return null;
+  const hw = headwayFor(lineId, depart);
+  const offset = (depart - first) % hw;
+  if (offset !== 0) depart += (hw - offset);
+  return depart <= last ? depart : null;
 }
 
-class PDFEventParser {
-    constructor() {
-        this.parsedEvents = [];
-        this.currentStep = 1;
-        this.maxSteps = 3;
+/* ===== גרף תחנות (קשתות) ===== */
+function E(a,b,mins,line){ return {a,b,mins,line}; }
+const EDGES = [
+  // EXPO: Waterfront -> Columbia
+  E("Waterfront","Burrard",2,"EXPO"), E("Burrard","Granville",2,"EXPO"),
+  E("Granville","Stadium–Chinatown",3,"EXPO"), E("Stadium–Chinatown","Main Street–Science World",3,"EXPO"),
+  E("Main Street–Science World","Commercial–Broadway",4,"EXPO"),
+  E("Commercial–Broadway","Nanaimo",3,"EXPO"), E("Nanaimo","29th Avenue",2,"EXPO"),
+  E("29th Avenue","Joyce–Collingwood",3,"EXPO"), E("Joyce–Collingwood","Patterson",3,"EXPO"),
+  E("Patterson","Metrotown",3,"EXPO"), E("Metrotown","Royal Oak",3,"EXPO"),
+  E("Royal Oak","Edmonds",3,"EXPO"), E("Edmonds","22nd Street",3,"EXPO"),
+  E("22nd Street","New Westminster",2,"EXPO"), E("New Westminster","Columbia",2,"EXPO"),
+  // EXPO לענף King George
+  E("Columbia","Scott Road",2,"EXPO"), E("Scott Road","Gateway",3,"EXPO"),
+  E("Gateway","Surrey Central",3,"EXPO"), E("Surrey Central","King George",2,"EXPO"),
+  // EXPO לענף Production Way
+  E("Columbia","Sapperton",3,"EXPO"), E("Sapperton","Braid",3,"EXPO"),
+  E("Braid","Lougheed Town Centre",4,"EXPO"), E("Lougheed Town Centre","Production Way–University",2,"EXPO"),
+  // MILLENNIUM
+  E("VCC–Clark","Commercial–Broadway",3,"MILL"), E("Commercial–Broadway","Renfrew",2,"MILL"),
+  E("Renfrew","Rupert",2,"MILL"), E("Rupert","Gilmore",3,"MILL"),
+  E("Gilmore","Brentwood Town Centre",3,"MILL"), E("Brentwood Town Centre","Holdom",2,"MILL"),
+  E("Holdom","Sperling–Burnaby Lake",3,"MILL"), E("Sperling–Burnaby Lake","Lake City Way",2,"MILL"),
+  E("Lake City Way","Production Way–University",2,"MILL"), E("Production Way–University","Lougheed Town Centre",3,"MILL"),
+  E("Lougheed Town Centre","Burquitlam",3,"MILL"), E("Burquitlam","Moody Centre",4,"MILL"),
+  E("Moody Centre","Inlet Centre",2,"MILL"), E("Inlet Centre","Coquitlam Central",2,"MILL"),
+  E("Coquitlam Central","Lincoln",2,"MILL"), E("Lincoln","Lafarge Lake–Douglas",2,"MILL"),
+  // CANADA
+  E("Waterfront","Vancouver City Centre",2,"CAN"), E("Vancouver City Centre","Yaletown–Roundhouse",2,"CAN"),
+  E("Yaletown–Roundhouse","Olympic Village",3,"CAN"), E("Olympic Village","Broadway–City Hall",3,"CAN"),
+  E("Broadway–City Hall","King Edward",3,"CAN"), E("King Edward","Oakridge–41st Avenue",3,"CAN"),
+  E("Oakridge–41st Avenue","Langara–49th Avenue",3,"CAN"), E("Langara–49th Avenue","Marine Drive",3,"CAN"),
+  E("Marine Drive","Bridgeport",4,"CAN"),
+  E("Bridgeport","Templeton",3,"CAN"), E("Templeton","Sea Island Centre",2,"CAN"), E("Sea Island Centre","YVR–Airport",2,"CAN"),
+  E("Bridgeport","Aberdeen",3,"CAN"), E("Aberdeen","Lansdowne",2,"CAN"), E("Lansdowne","Richmond–Brighouse",2,"CAN"),
+];
+
+const LINE_STOPS = { EXPO:new Set(), MILL:new Set(), CAN:new Set() };
+const GRAPH_BY_LINE = { EXPO:{}, MILL:{}, CAN:{} };
+for (const {a,b,mins,line} of EDGES) {
+  LINE_STOPS[line].add(a); LINE_STOPS[line].add(b);
+  if (!GRAPH_BY_LINE[line][a]) GRAPH_BY_LINE[line][a] = [];
+  if (!GRAPH_BY_LINE[line][b]) GRAPH_BY_LINE[line][b] = [];
+  GRAPH_BY_LINE[line][a].push({to:b,mins});
+  GRAPH_BY_LINE[line][b].push({to:a,mins});
+}
+const ALL_STOPS = [...new Set(Object.values(LINE_STOPS).flatMap(s => [...s]))].sort((a,b)=>a.localeCompare(b,'he'));
+const TRANSFER_HUBS = new Set(["Waterfront","Commercial–Broadway","Production Way–University","Lougheed Town Centre","Columbia"]);
+
+/* ===== תכנון מסלולים ===== */
+const LINES_ORDER = ["EXPO","MILL","CAN"];
+const TRANSFER_MIN = 3;
+
+function shortestOnLine(lineId, from, to){
+  if (!LINE_STOPS[lineId].has(from) || !LINE_STOPS[lineId].has(to)) return null;
+  const adj = GRAPH_BY_LINE[lineId];
+  const dist = new Map(), prev = new Map(), pq = [];
+  Object.keys(adj).forEach(s => dist.set(s, Infinity));
+  dist.set(from,0); pq.push([0,from]);
+  while(pq.length){
+    pq.sort((a,b)=>a[0]-b[0]);
+    const [d,u] = pq.shift();
+    if (d>dist.get(u)) continue;
+    if (u===to) break;
+    for (const {to:v,mins} of adj[u]){
+      const nd = d+mins;
+      if (nd<dist.get(v)){ dist.set(v,nd); prev.set(v,u); pq.push([nd,v]); }
     }
-
-    // Main function to parse PDF and extract events
-    async parsePDF(file) {
-        try {
-            console.log('🔍 Starting PDF parsing...');
-            
-            // Read PDF file
-            const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-            
-            console.log(`📄 PDF loaded: ${pdf.numPages} pages`);
-            
-            // Extract text from all pages
-            let fullText = '';
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                const pageText = content.items.map(item => item.str).join(' ');
-                fullText += pageText + '\n';
-                console.log(`📝 Page ${i} text length: ${pageText.length} characters`);
-                
-                // Show first 200 chars of each page for debugging
-                if (pageText.length > 0) {
-                    console.log(`📖 Page ${i} preview: "${pageText.substring(0, 200)}..."`);
-                }
-            }
-            
-            console.log(`📝 Total text extracted: ${fullText.length} characters`);
-            console.log('📝 Full text extracted, analyzing...');
-            
-            // Save raw text for debugging
-            this.rawText = fullText;
-            
-            // Parse events from text
-            this.parsedEvents = this.extractEvents(fullText);
-            
-            console.log(`✅ Found ${this.parsedEvents.length} potential events`);
-            
-            // Show first few events found
-            if (this.parsedEvents.length > 0) {
-                console.log('🎯 First few events found:');
-                this.parsedEvents.slice(0, 5).forEach((event, index) => {
-                    console.log(`   ${index + 1}. ${event.name} on ${event.date.toLocaleDateString()}`);
-                });
-            }
-            
-            return this.parsedEvents;
-            
-        } catch (error) {
-            console.error('❌ PDF parsing error:', error);
-            throw new Error(`שגיאה בקריאת הקובץ: ${error.message}`);
-        }
+  }
+  if (dist.get(to)===Infinity) return null;
+  const path = []; let cur=to;
+  while(cur && cur!==from){ path.push(cur); cur=prev.get(cur); }
+  path.push(from); path.reverse();
+  return { mins: dist.get(to), path };
+}
+function intersection(aSet,bSet){ const out=[]; for (const x of aSet) if (bSet.has(x)) out.push(x); return out; }
+function planCandidates(from, to, depMins){
+  const cands = [];
+  for (const L of LINES_ORDER){
+    const seg = shortestOnLine(L, from, to);
+    if (seg){
+      const d1=scheduleDeparture(L,depMins); if (d1==null) continue;
+      const a1=d1+seg.mins;
+      cands.push({ type:"DIRECT", transfers:0, depart:d1, arrive:a1,
+        legs:[{ line:LINE_META[L].name, lineId:L, color:LINE_META[L].color, from, to, depart:d1, arrive:a1, path:seg.path }]});
     }
-
-    // Extract events from text using pattern matching
-    extractEvents(text) {
-        const events = [];
-        let lines = text.split('\n').filter(line => line.trim());
-        
-        console.log('🔍 Total lines to analyze:', lines.length);
-        console.log('📝 First 10 lines:', lines.slice(0, 10));
-        
-        // Special handling for single-line PDFs (like school calendars)
-        if (lines.length === 1 && lines[0].length > 500) {
-            console.log('🔄 Detected single-line format, splitting into events...');
-            lines = this.splitSingleLineCalendar(lines[0]);
-            console.log(`📊 Split into ${lines.length} potential event lines`);
-        }
-        
-        // Hebrew months mapping
-        const hebrewMonths = {
-            'ינואר': 1, 'פברואר': 2, 'מרץ': 3, 'אפריל': 4, 'מאי': 5, 'יוני': 6,
-            'יולי': 7, 'אוגוסט': 8, 'ספטמבר': 9, 'אוקטובר': 10, 'נובמבר': 11, 'דצמבר': 12,
-            'תשרי': 9, 'מרחשוון': 10, 'כסלו': 11, 'טבת': 12, 'שבט': 1, 'אדר': 2,
-            'ניסן': 3, 'אייר': 4, 'סיון': 5, 'תמוז': 6, 'אב': 7, 'אלול': 8
-        };
-
-        // English months mapping
-        const englishMonths = {
-            'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
-            'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
-            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6, 'jul': 7, 'aug': 8,
-            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
-        };
-
-        // Enhanced date patterns for school calendar format
-        const datePatterns = [
-            // Weekday, Month DD format (like "Tuesday, September 2") - MOST COMMON IN SCHOOL CALENDARS
-            /(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/gi,
-            // Month DD, YYYY (English)
-            /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})/gi,
-            // Month DD (current year assumed)
-            /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})\b/gi,
-            // DD/MM/YYYY or DD.MM.YYYY
-            /(?:יום\s+)?(\d{1,2})[\.\/](\d{1,2})[\.\/](\d{2,4})/g,
-            // DD MM YYYY (Hebrew)
-            /(\d{1,2})\s+(ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+(\d{4})/gi,
-            // ISO format YYYY-MM-DD
-            /(\d{4})-(\d{1,2})-(\d{1,2})/g,
-            // Date ranges like "December 22, -January 2, 2026" or "March 16-27"
-            /(december|january|february|march|april|may|june|july|august|september|october|november)\s+(\d{1,2}),?\s*[-–]\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})/gi,
-            // Simple month-day ranges like "March 16-27"
-            /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})[-–](\d{1,2})/gi
-        ];
-
-        let currentDate = null;
-        let currentYear = 2025; // Default year for school calendar
-
-        // Track what we find for debugging
-        let dateMatches = 0;
-        let eventMatches = 0;
-        let skippedLines = 0;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line || line.length < 3) {
-                skippedLines++;
-                continue;
-            }
-
-            // Try to extract date from line
-            const extractedDate = this.extractDateFromLine(line, datePatterns, hebrewMonths, englishMonths, currentYear);
-            if (extractedDate) {
-                currentDate = extractedDate;
-                currentYear = extractedDate.getFullYear();
-                dateMatches++;
-                console.log(`📅 Found date: ${currentDate.toLocaleDateString()} from line: "${line.substring(0, 100)}..."`);
-                
-                // Look ahead for event on same line
-                const inlineEvent = this.extractEventFromSameLine(line);
-                if (inlineEvent) {
-                    const category = this.categorizeEvent(inlineEvent);
-                    const participants = this.getDefaultParticipants(category);
-                    
-                    events.push({
-                        date: new Date(currentDate),
-                        name: inlineEvent,
-                        category: category,
-                        participants: participants,
-                        rawLine: line,
-                        timeSlot: '09:00-17:00'
-                    });
-                    eventMatches++;
-                    console.log(`✅ Found inline event: "${inlineEvent}"`);
-                }
-                continue;
-            }
-
-            // If we have a current date, try to extract event from this line
-            if (currentDate && !this.isDateLine(line)) {
-                const eventName = this.extractEventName(line, i, lines);
-                if (eventName) {
-                    const category = this.categorizeEvent(eventName);
-                    const participants = this.getDefaultParticipants(category);
-                    
-                    // Check if this is a duplicate (sometimes events appear on multiple lines)
-                    const isDuplicate = events.some(existingEvent => 
-                        existingEvent.date.toDateString() === currentDate.toDateString() &&
-                        this.calculateSimilarity(existingEvent.name.toLowerCase(), eventName.toLowerCase()) > 0.7
-                    );
-                    
-                    if (!isDuplicate) {
-                        events.push({
-                            date: new Date(currentDate),
-                            name: eventName,
-                            category: category,
-                            participants: participants,
-                            rawLine: line,
-                            timeSlot: '09:00-17:00'
-                        });
-                        eventMatches++;
-                        console.log(`✅ Found event: "${eventName}" for date: ${currentDate.toLocaleDateString()}`);
-                    } else {
-                        console.log(`🗑️ Skipping duplicate event: "${eventName}"`);
-                    }
-                }
-            }
-            
-            // Special handling for table-like formats where date and event might be separated
-            if (!currentDate && i < lines.length - 1) {
-                const nextLine = lines[i + 1].trim();
-                const combinedLine = `${line} ${nextLine}`;
-                
-                const combinedDate = this.extractDateFromLine(combinedLine, datePatterns, hebrewMonths, englishMonths, currentYear);
-                if (combinedDate) {
-                    currentDate = combinedDate;
-                    currentYear = combinedDate.getFullYear();
-                    dateMatches++;
-                    console.log(`📅 Found date from combined lines: ${currentDate.toLocaleDateString()}`);
-                    
-                    // Extract event from the combined content
-                    const combinedEvent = this.extractEventFromSameLine(combinedLine);
-                    if (combinedEvent) {
-                        const category = this.categorizeEvent(combinedEvent);
-                        const participants = this.getDefaultParticipants(category);
-                        
-                        events.push({
-                            date: new Date(currentDate),
-                            name: combinedEvent,
-                            category: category,
-                            participants: participants,
-                            rawLine: combinedLine,
-                            timeSlot: '09:00-17:00'
-                        });
-                        eventMatches++;
-                        console.log(`✅ Found combined event: "${combinedEvent}"`);
-                        i++; // Skip next line since we processed it
-                    }
-                }
-            }
-        }
-        
-        console.log(`📊 Parsing summary: ${dateMatches} dates found, ${eventMatches} events found, ${skippedLines} lines skipped`);
-        
-        // If we found very few events, try alternative parsing strategies
-        if (events.length < 3 && lines.length > 20) {
-            console.log(`🔄 Low event count (${events.length}), trying alternative parsing...`);
-            const alternativeEvents = this.tryAlternativeParsing(lines, hebrewMonths, englishMonths, currentYear);
-            events.push(...alternativeEvents);
-            console.log(`🔄 Alternative parsing found ${alternativeEvents.length} additional events`);
-        }
-
-        // Remove duplicates and sort by date
-        const uniqueEvents = this.removeDuplicates(events);
-        uniqueEvents.sort((a, b) => a.date - b.date);
-        
-        return uniqueEvents;
+  }
+  for (const L1 of LINES_ORDER){
+    for (const L2 of LINES_ORDER){
+      if (L1===L2) continue;
+      for (const hub of intersection(LINE_STOPS[L1], LINE_STOPS[L2])){
+        if (!TRANSFER_HUBS.has(hub)) continue;
+        const seg1=shortestOnLine(L1,from,hub), seg2=shortestOnLine(L2,hub,to);
+        if (!seg1||!seg2) continue;
+        const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
+        const a1=d1+seg1.mins;
+        const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
+        const a2=d2+seg2.mins;
+        cands.push({ type:"TRANSFER1", transfers:1, depart:d1, arrive:a2,
+          legs:[
+            { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:hub, depart:d1, arrive:a1, path:seg1.path },
+            { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:hub, to, depart:d2, arrive:a2, path:seg2.path }
+          ]});
+      }
     }
-
-    // NEW: Split single-line calendar into individual event lines
-    splitSingleLineCalendar(longLine) {
-        console.log('🔄 Splitting single-line calendar format...');
-        
-        // Split by weekday patterns - this is the most reliable separator for school calendars
-        const weekdayPattern = /(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi;
-        
-        const matches = [];
-        let match;
-        
-        // Find all weekday-date patterns and their positions
-        while ((match = weekdayPattern.exec(longLine)) !== null) {
-            matches.push({
-                match: match[0],
-                index: match.index,
-                fullMatch: match
-            });
+  }
+  for (const L1 of LINES_ORDER){
+    for (const L2 of LINES_ORDER){
+      if (L1===L2) continue;
+      for (const L3 of LINES_ORDER){
+        if (L3===L1||L3===L2) continue;
+        const inter12=intersection(LINE_STOPS[L1],LINE_STOPS[L2]);
+        const inter23=intersection(LINE_STOPS[L2],LINE_STOPS[L3]);
+        for (const h1 of inter12){
+          if (!TRANSFER_HUBS.has(h1)) continue;
+          const seg1=shortestOnLine(L1,from,h1); if (!seg1) continue;
+          for (const h2 of inter23){
+            if (!TRANSFER_HUBS.has(h2)) continue;
+            const seg2=shortestOnLine(L2,h1,h2), seg3=shortestOnLine(L3,h2,to);
+            if (!seg2||!seg3) continue;
+            const d1=scheduleDeparture(L1,depMins); if (d1==null) continue;
+            const a1=d1+seg1.mins;
+            const d2=scheduleDeparture(L2,a1+TRANSFER_MIN); if (d2==null) continue;
+            const a2=d2+seg2.mins;
+            const d3=scheduleDeparture(L3,a2+TRANSFER_MIN); if (d3==null) continue;
+            const a3=d3+seg3.mins;
+            cands.push({ type:"TRANSFER2", transfers:2, depart:d1, arrive:a3,
+              legs:[
+                { line:LINE_META[L1].name, lineId:L1, color:LINE_META[L1].color, from, to:h1, depart:d1, arrive:a1, path:seg1.path },
+                { line:LINE_META[L2].name, lineId:L2, color:LINE_META[L2].color, from:h1, to:h2, depart:d2, arrive:a2, path:seg2.path },
+                { line:LINE_META[L3].name, lineId:L3, color:LINE_META[L3].color, from:h2, to, depart:d3, arrive:a3, path:seg3.path }
+              ]});
+          }
         }
-        
-        console.log(`📅 Found ${matches.length} date patterns in single line`);
-        
-        if (matches.length === 0) {
-            // Fallback: split by common separators
-            return longLine.split(/\s{4,}|\t/).filter(part => part.trim().length > 10);
-        }
-        
-        // Split the text based on date positions
-        const eventLines = [];
-        
-        for (let i = 0; i < matches.length; i++) {
-            const currentMatch = matches[i];
-            const nextMatch = matches[i + 1];
-            
-            const startPos = currentMatch.index;
-            const endPos = nextMatch ? nextMatch.index : longLine.length;
-            
-            const eventText = longLine.substring(startPos, endPos).trim();
-            
-            if (eventText.length > 10) { // Only meaningful chunks
-                eventLines.push(eventText);
-                console.log(`📝 Split event: "${eventText.substring(0, 100)}..."`);
-            }
-        }
-        
-        // If we still have very few lines, try additional splitting methods
-        if (eventLines.length < 5) {
-            console.log('🔄 Few events found, trying additional splitting...');
-            
-            // Try splitting by month names (for events without weekdays)
-            const monthPattern = /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi;
-            const additionalMatches = [];
-            let monthMatch;
-            
-            while ((monthMatch = monthPattern.exec(longLine)) !== null) {
-                // Check if this match is not already captured by weekday pattern
-                const isNewMatch = !matches.some(existing => 
-                    Math.abs(existing.index - monthMatch.index) < 20
-                );
-                
-                if (isNewMatch) {
-                    additionalMatches.push({
-                        match: monthMatch[0],
-                        index: monthMatch.index,
-                        fullMatch: monthMatch
-                    });
-                }
-            }
-            
-            console.log(`📅 Found ${additionalMatches.length} additional month patterns`);
-            
-            // Process additional matches
-            for (let i = 0; i < additionalMatches.length; i++) {
-                const currentMatch = additionalMatches[i];
-                const nextMatch = additionalMatches[i + 1];
-                
-                const startPos = currentMatch.index;
-                const endPos = nextMatch ? nextMatch.index : longLine.length;
-                
-                const eventText = longLine.substring(startPos, endPos).trim();
-                
-                if (eventText.length > 10 && !eventLines.some(existing => existing.includes(eventText))) {
-                    eventLines.push(eventText);
-                    console.log(`📝 Additional event: "${eventText.substring(0, 100)}..."`);
-                }
-            }
-        }
-        
-        console.log(`✅ Successfully split into ${eventLines.length} event lines`);
-        return eventLines;
+      }
     }
-
-    extractDateFromLine(line, patterns, hebrewMonths, englishMonths, currentYear) {
-        // Try each pattern
-        for (const pattern of patterns) {
-            pattern.lastIndex = 0; // Reset regex
-            const match = pattern.exec(line.toLowerCase()); // Convert to lowercase for matching
-            if (match) {
-                try {
-                    let day, month, year;
-                    
-                    // Handle different pattern formats
-                    if (pattern.source.includes('monday|tuesday|wednesday') && pattern.source.includes('january|february')) {
-                        // Weekday, Month DD format (most common in school calendars)
-                        const monthName = match[2].toLowerCase();
-                        month = englishMonths[monthName];
-                        day = parseInt(match[3]);
-                        year = currentYear;
-                        console.log(`📅 Parsed weekday format: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (pattern.source.includes('january|february') && pattern.source.includes('\\d{4}')) {
-                        // Month DD, YYYY format
-                        const monthName = match[1].toLowerCase();
-                        month = englishMonths[monthName];
-                        day = parseInt(match[2]);
-                        year = match[3] ? parseInt(match[3]) : currentYear;
-                        console.log(`📅 Parsed month+year format: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (pattern.source.includes('january|february') && pattern.source.includes('\\b')) {
-                        // Month DD (current year assumed)
-                        const monthName = match[1].toLowerCase();
-                        month = englishMonths[monthName];
-                        day = parseInt(match[2]);
-                        year = currentYear;
-                        console.log(`📅 Parsed month format: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (pattern.source.includes('march.*16.*27')) {
-                        // Simple month-day ranges like "March 16-27"
-                        const monthName = match[1].toLowerCase();
-                        month = englishMonths[monthName];
-                        day = parseInt(match[2]); // Use start day
-                        year = currentYear;
-                        console.log(`📅 Parsed range format: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (pattern.source.includes('december.*january')) {
-                        // Date range format like "December 22, -January 2, 2026"
-                        const startMonth = englishMonths[match[1].toLowerCase()];
-                        const startDay = parseInt(match[2]);
-                        const endMonth = englishMonths[match[3].toLowerCase()];
-                        const endDay = parseInt(match[4]);
-                        year = parseInt(match[5]);
-                        
-                        // Return the start date for date ranges
-                        month = startMonth;
-                        day = startDay;
-                        console.log(`📅 Parsed date range: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (pattern.source.includes('ינואר|פברואר')) {
-                        // Hebrew month name format
-                        day = parseInt(match[1]);
-                        month = hebrewMonths[match[2]];
-                        year = parseInt(match[3]);
-                        console.log(`📅 Parsed Hebrew format: ${day}/${month}/${year} from "${match[0]}"`);
-                    } else if (match[1] && match[2] && match[3]) {
-                        // Numeric format
-                        if (match[1].length === 4) {
-                            // YYYY-MM-DD
-                            year = parseInt(match[1]);
-                            month = parseInt(match[2]);
-                            day = parseInt(match[3]);
-                        } else {
-                            // DD/MM/YYYY
-                            day = parseInt(match[1]);
-                            month = parseInt(match[2]);
-                            year = match[3].length === 2 ? 2000 + parseInt(match[3]) : parseInt(match[3]);
-                        }
-                        console.log(`📅 Parsed numeric format: ${day}/${month}/${year} from "${match[0]}"`);
-                    }
-
-                    // Validate date
-                    if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2020 && year <= 2030) {
-                        const parsedDate = new Date(year, month - 1, day);
-                        console.log(`✅ Valid date created: ${parsedDate.toLocaleDateString()}`);
-                        return parsedDate;
-                    } else {
-                        console.log(`❌ Invalid date values: ${day}/${month}/${year}`);
-                    }
-                } catch (error) {
-                    console.warn('Date parsing error:', error);
-                }
-            }
-        }
-        return null;
-    }
-
-    // NEW: Extract event from same line as date
-    extractEventFromSameLine(line) {
-        // Remove the date part and extract the event
-        let dateRemovedLine = line
-            .replace(/(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi, '')
-            .replace(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s*\d{4}/gi, '')
-            .replace(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b/gi, '')
-            .replace(/\d{1,2}[\.\/]\d{1,2}[\.\/]\d{2,4}/g, '')
-            .replace(/^(2025|2026)\s*/gi, '') // Remove year prefixes
-            .trim();
-        
-        // If what's left is substantial and not a header/metadata
-        if (dateRemovedLine.length > 3 && !this.isHeaderLine(dateRemovedLine) && !this.isMetadataLine(dateRemovedLine)) {
-            const cleaned = this.cleanEventName(dateRemovedLine);
-            if (cleaned.length > 2) {
-                console.log(`🎯 Extracted inline event: "${cleaned}" from line: "${line}"`);
-                return cleaned;
-            }
-        }
-        return null;
-    }
-
-    extractEventName(line, currentIndex, lines) {
-        // Skip obvious header lines
-        if (this.isHeaderLine(line)) {
-            console.log(`⏭️ Skipping header line: "${line}"`);
-            return null;
-        }
-        
-        // Skip date-only lines
-        if (this.isDateLine(line)) {
-            console.log(`⏭️ Skipping date line: "${line}"`);
-            return null;
-        }
-        
-        // Skip if line is too short or looks like metadata
-        if (line.length < 4 || this.isMetadataLine(line)) {
-            console.log(`⏭️ Skipping short/metadata line: "${line}"`);
-            return null;
-        }
-        
-        // Remove common prefixes and suffixes
-        let eventName = line
-            .replace(/^[\d\-\.\s\/]+/, '') // Remove leading dates and numbers
-            .replace(/\s*(school closed|partial day|dismissal time|available on|statutory holiday).*$/gi, '') // Remove school-specific suffixes
-            .replace(/\s*\d{1,2}:\d{2}(am|pm)?\s*$/gi, '') // Remove trailing times
-            .replace(/^(date|event|explanation|purpose)\s*/gi, '') // Remove column headers
-            .replace(/^(2025|2026)\s*/gi, '') // Remove year prefixes
-            .trim();
-
-        // Skip very common non-event words/lines
-        const skipWords = [
-            'calendar', 'information', 'new westminster', 'school district', 'elementary',
-            'lord kelvin', 'explanation', 'purpose', 'date', 'event'
-        ];
-        
-        const lowerEventName = eventName.toLowerCase();
-        if (skipWords.some(word => lowerEventName === word || lowerEventName.includes(word + ' ') || lowerEventName.startsWith(word))) {
-            console.log(`⏭️ Skipping common word: "${eventName}"`);
-            return null;
-        }
-
-        // Clean up the event name further
-        eventName = this.cleanEventName(eventName);
-
-        // Final length check
-        if (eventName.length < 3) {
-            console.log(`⏭️ Event name too short after cleaning: "${eventName}"`);
-            return null;
-        }
-
-        // If this looks like it might be a table format, try next line too
-        if (eventName.length < 15 && currentIndex < lines.length - 1) {
-            const nextLine = lines[currentIndex + 1].trim();
-            if (nextLine.length > eventName.length && !this.isDateLine(nextLine) && !this.isHeaderLine(nextLine)) {
-                const combinedName = `${eventName} - ${this.cleanEventName(nextLine)}`.trim();
-                if (combinedName.length > eventName.length && combinedName.length < 100) {
-                    console.log(`🔗 Combined with next line: "${combinedName}"`);
-                    return combinedName;
-                }
-            }
-        }
-
-        console.log(`✨ Extracted event name: "${eventName}"`);
-        return eventName;
-    }
-
-    // NEW: Check if line is metadata/formatting
-    isMetadataLine(line) {
-        const metadataPatterns = [
-            /^\d+$/, // Just a number
-            /^page \d+/gi,
-            /^continued/gi,
-            /^\s*[-_=]+\s*$/, // Just dashes/underscores
-            /^lord kelvin elementary/gi,
-            /^new westminster school district/gi
-        ];
-        
-        return metadataPatterns.some(pattern => pattern.test(line.trim()));
-    }
-
-    cleanEventName(name) {
-        return name
-            .replace(/^[•\-\*\d\.\s]+/, '') // Remove bullet points and numbering
-            .replace(/^\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s*/gi, '') // Remove day names
-            .replace(/^\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s*/gi, '') // Remove dates
-            .replace(/\s*(school closed|partial day|dismissal time|available on|first day|last day).*$/gi, '') // Remove explanations
-            .replace(/\s*\d{1,2}:\d{2}(am|pm)?\s*$/, '') // Remove times
-            .replace(/^\s*[-–]\s*/, '') // Remove leading dashes
-            .replace(/\s*–\s*.*$/, '') // Remove everything after em-dash
-            .replace(/\s+/g, ' ') // Normalize whitespace
-            .trim();
-    }
-
-    isDateLine(line) {
-        const trimmed = line.trim();
-        const dateIndicators = [
-            /^\d{4}$/,                              // Just a year (2025)
-            /^[\d\s\-\/\.]+$/,                      // Only numbers and date separators
-            /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/gi,  // Just day names
-            /^(january|february|march|april|may|june|july|august|september|october|november|december)$/gi, // Just month names
-            /^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}$/gi, // Month + day
-            /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}$/gi, // Full date format
-            /^\d{1,2}[\/\.]\d{1,2}[\/\.]\d{2,4}$/, // Numeric date format
-            /^\d{4}-\d{1,2}-\d{1,2}$/, // ISO date format
-            /^(december|january|february|march|april|may|june|july|august|september|october|november)\s+\d{1,2},?\s*[-–]\s*(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}$/gi // Date range
-        ];
-        
-        const isDateOnly = dateIndicators.some(pattern => pattern.test(trimmed));
-        
-        if (isDateOnly) {
-            console.log(`📅 Identified date-only line: "${trimmed}"`);
-        }
-        
-        return isDateOnly;
-    }
-
-    isHeaderLine(line) {
-        const headerIndicators = [
-            /^(date|event|explanation|purpose|calendar|information)$/gi,
-            /^[A-Z\s\-_]+$/, // All caps (likely headers) but allow dashes and underscores
-            /^(new westminster )?school district( no\. \d+)?$/gi,
-            /^lord kelvin elementary( \d{4}-\d{4})?$/gi,
-            /^school calendar$/gi,
-            /^calendar information$/gi,
-            /^(2025|2026)$/gi, // Just year
-            /^\d{4}-\d{4}$/gi // Year range like 2025-2026
-        ];
-        
-        const trimmed = line.trim();
-        const isHeader = headerIndicators.some(pattern => pattern.test(trimmed));
-        
-        if (isHeader) {
-            console.log(`📋 Identified header: "${trimmed}"`);
-        }
-        
-        return isHeader;
-    }
-
-    categorizeEvent(eventName) {
-        const categories = {
-            study: [
-                'school', 'learning', 'education', 'homework', 'study', 'lesson', 'class', 
-                'report card', 'pro-d', 'professional', 'instructional', 'collaboration',
-                'בית ספר', 'לימוד', 'שיעור', 'דוח'
-            ],
-            outdoor: [
-                'park', 'outdoor', 'sports', 'playground', 'field trip', 'day', 'walk',
-                'פארק', 'חוץ', 'ספורט', 'טיול'
-            ],
-            museum: [
-                'museum', 'exhibition', 'gallery', 'cultural', 'library', 'center',
-                'מוזיאון', 'תערוכה', 'תרבות'
-            ],
-            routine: [
-                'breakfast', 'lunch', 'dinner', 'sleep', 'bath', 'opening', 'closed',
-                'break', 'reopen', 'dismiss', 'administration',
-                'ארוחה', 'שינה', 'אמבטיה', 'פתיחה'
-            ],
-            special: [
-                'birthday', 'holiday', 'celebration', 'festival', 'vacation', 'christmas', 'winter',
-                'spring', 'thanksgiving', 'remembrance', 'day', 'shirt', 'photo', 'graduation',
-                'easter', 'family', 'victoria', 'truth', 'reconciliation', 'multicultural',
-                'welcome', 'ceremony', 'conference',
-                'חג', 'יום הולדת', 'חופש', 'חגיגה'
-            ]
-        };
-
-        const lowerName = eventName.toLowerCase();
-        
-        // Check each category
-        for (const [category, keywords] of Object.entries(categories)) {
-            if (keywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
-                console.log(`🏷️ Categorized "${eventName}" as "${category}"`);
-                return category;
-            }
-        }
-
-        // Default categorization based on common school event patterns
-        if (lowerName.includes('day') && !lowerName.includes('birthday')) {
-            console.log(`🏷️ Categorized "${eventName}" as "special" (contains 'day')`);
-            return 'special';
-        }
-        
-        if (lowerName.includes('school') || lowerName.includes('class') || lowerName.includes('student')) {
-            console.log(`🏷️ Categorized "${eventName}" as "study" (school-related)`);
-            return 'study';
-        }
-
-        // Default to special for most imported events
-        console.log(`🏷️ Categorized "${eventName}" as "special" (default)`);
-        return 'special';
-    }
-
-    getDefaultParticipants(category) {
-        // Most imported events (school calendar) affect the whole family
-        return ['dad', 'mom', 'child1', 'child2'];
-    }
-
-    removeDuplicates(events) {
-        const seen = new Map();
-        const unique = [];
-        
-        for (const event of events) {
-            const dateKey = event.date.toDateString();
-            const eventKey = event.name.toLowerCase().trim();
-            const combinedKey = `${dateKey}-${eventKey}`;
-            
-            // Check for exact duplicates
-            if (seen.has(combinedKey)) {
-                console.log(`🗑️ Removing exact duplicate: "${event.name}" on ${dateKey}`);
-                continue;
-            }
-            
-            // Check for similar events (fuzzy matching)
-            let isDuplicate = false;
-            for (const [existingKey, existingEvent] of seen.entries()) {
-                if (existingKey.startsWith(dateKey)) {
-                    const similarity = this.calculateSimilarity(eventKey, existingEvent.name.toLowerCase().trim());
-                    if (similarity > 0.8) { // 80% similarity threshold
-                        console.log(`🗑️ Removing similar duplicate: "${event.name}" (${similarity.toFixed(2)} similarity with "${existingEvent.name}")`);
-                        isDuplicate = true;
-                        break;
-                    }
-                }
-            }
-            
-            if (!isDuplicate) {
-                seen.set(combinedKey, event);
-                unique.push(event);
-                console.log(`✅ Keeping unique event: "${event.name}" on ${dateKey}`);
-            }
-        }
-        
-        console.log(`🧹 Duplicate removal: ${events.length} → ${unique.length} events`);
-        return unique;
-    }
-
-    // NEW: Calculate string similarity (Levenshtein distance based)
-    calculateSimilarity(str1, str2) {
-        const longer = str1.length > str2.length ? str1 : str2;
-        const shorter = str1.length > str2.length ? str2 : str1;
-        
-        if (longer.length === 0) {
-            return 1.0;
-        }
-        
-        const distance = this.levenshteinDistance(longer, shorter);
-        return (longer.length - distance) / longer.length;
-    }
-
-    // NEW: Calculate Levenshtein distance
-    levenshteinDistance(str1, str2) {
-        const matrix = [];
-        
-        for (let i = 0; i <= str2.length; i++) {
-            matrix[i] = [i];
-        }
-        
-        for (let j = 0; j <= str1.length; j++) {
-            matrix[0][j] = j;
-        }
-        
-        for (let i = 1; i <= str2.length; i++) {
-            for (let j = 1; j <= str1.length; j++) {
-                if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                    matrix[i][j] = matrix[i - 1][j - 1];
-                } else {
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j - 1] + 1,
-                        matrix[i][j - 1] + 1,
-                        matrix[i - 1][j] + 1
-                    );
-                }
-            }
-        }
-        
-        return matrix[str2.length][str1.length];
-    }
-
-    // Format events for preview
-    formatEventsForPreview() {
-        return this.parsedEvents.map(event => ({
-            date: event.date.toISOString().split('T')[0],
-            dateDisplay: event.date.toLocaleDateString('he-IL'),
-            name: event.name,
-            category: event.category,
-            participants: event.participants,
-            timeSlot: event.timeSlot
-        }));
-    }
-
-    // Get date range of events
-    getDateRange() {
-        if (this.parsedEvents.length === 0) return null;
-        
-        const dates = this.parsedEvents.map(event => event.date);
-        const minDate = new Date(Math.min(...dates));
-        const maxDate = new Date(Math.max(...dates));
-        
-        return {
-            start: minDate.toLocaleDateString('he-IL'),
-            end: maxDate.toLocaleDateString('he-IL'),
-            count: this.parsedEvents.length
-        };
-    }
-
-    // Filter events based on options
-    filterEvents(options = {}) {
-        let filtered = [...this.parsedEvents];
-
-        if (options.skipWeekends) {
-            filtered = filtered.filter(event => {
-                const day = event.date.getDay();
-                return day !== 0 && day !== 6; // Not Sunday or Saturday
-            });
-        }
-
-        if (options.startDate) {
-            const start = new Date(options.startDate);
-            filtered = filtered.filter(event => event.date >= start);
-        }
-
-        if (options.endDate) {
-            const end = new Date(options.endDate);
-            filtered = filtered.filter(event => event.date <= end);
-        }
-
-        return filtered;
-    }
-
-    // Apply customization options to events
-    applyCustomization(options) {
-        this.parsedEvents.forEach(event => {
-            if (options.defaultCategory) {
-                event.category = options.defaultCategory;
-            }
-            
-            if (options.participants && options.participants.length > 0) {
-                event.participants = options.participants;
-            }
-            
-            if (options.createAllDay) {
-                event.timeSlot = '09:00-17:00';
-            }
-        });
-    }
-
-    // Get current step progress
-    getStepProgress() {
-        return {
-            current: this.currentStep,
-            max: this.maxSteps,
-            percentage: (this.currentStep / this.maxSteps) * 100
-        };
-    }
-
-    // NEW: Get raw text for debugging
-    getRawText() {
-        return this.rawText || '';
-    }
-
-    // NEW: Debug function to analyze text patterns
-    debugTextPatterns() {
-        if (!this.rawText) {
-            console.log('❌ No raw text available for analysis');
-            return;
-        }
-        
-        console.log('🔍 DEBUG: Analyzing text patterns...');
-        
-        const lines = this.rawText.split('\n').filter(line => line.trim());
-        console.log(`📊 Total lines: ${lines.length}`);
-        
-        // Show first 20 lines for manual inspection
-        console.log('📝 First 20 lines of PDF:');
-        lines.slice(0, 20).forEach((line, index) => {
-            console.log(`   ${(index + 1).toString().padStart(2, '0')}. "${line.trim()}"`);
-        });
-        
-        // Find potential date lines with various patterns
-        const datePatterns = [
-            /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,
-            /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/gi,
-            /\b\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4}\b/g,
-            /\b(2025|2026)\b/g
-        ];
-        
-        console.log('\n📅 Lines containing potential date indicators:');
-        let dateLineCount = 0;
-        
-        lines.forEach((line, index) => {
-            let hasDatePattern = false;
-            datePatterns.forEach(pattern => {
-                if (pattern.test(line)) {
-                    hasDatePattern = true;
-                }
-                pattern.lastIndex = 0; // Reset for next test
-            });
-            
-            if (hasDatePattern) {
-                dateLineCount++;
-                console.log(`   📅 Line ${index + 1}: "${line.trim()}"`);
-                
-                // Try to extract date from this line specifically
-                const testDate = this.extractDateFromLine(line, [
-                    /(monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/gi,
-                    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{4})/gi,
-                    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})\b/gi
-                ], {}, {
-                    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
-                    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12
-                }, 2025);
-                
-                if (testDate) {
-                    console.log(`     ✅ Successfully parsed: ${testDate.toLocaleDateString()}`);
-                } else {
-                    console.log(`     ❌ Could not parse date from this line`);
-                }
-            }
-        });
-        
-        console.log(`\n📊 Summary: Found ${dateLineCount} lines with potential date patterns`);
-        
-        // Find lines with common event words
-        const eventWords = ['school', 'day', 'break', 'holiday', 'conference', 'photo', 'report', 'opening', 'closed', 'card'];
-        const eventLines = [];
-        
-        lines.forEach((line, index) => {
-            const lowerLine = line.toLowerCase();
-            if (eventWords.some(word => lowerLine.includes(word))) {
-                eventLines.push({index: index + 1, line: line.trim()});
-            }
-        });
-        
-        console.log(`\n🎯 Lines containing potential event words (first 15):`);
-        eventLines.slice(0, 15).forEach(item => {
-            console.log(`   🎯 Line ${item.index}: "${item.line}"`);
-        });
-        
-        console.log(`\n📊 Total event-related lines found: ${eventLines.length}`);
-        
-        // Specific analysis for school calendar format
-        console.log('\n📚 School calendar format analysis:');
-        const schoolPatterns = [
-            /school\s+(opening|closed|reopen)/gi,
-            /(pro-d|professional|instructional)/gi,
-            /(report\s+card|dismissal|conference)/gi,
-            /(holiday|break|vacation)/gi
-        ];
-        
-        let schoolEventCount = 0;
-        lines.forEach((line, index) => {
-            let hasSchoolPattern = false;
-            schoolPatterns.forEach(pattern => {
-                if (pattern.test(line)) {
-                    hasSchoolPattern = true;
-                    schoolEventCount++;
-                    console.log(`   🏫 School event line ${index + 1}: "${line.trim()}"`);
-                }
-                pattern.lastIndex = 0;
-            });
-        });
-        
-        console.log(`\n📊 Total school-specific events found: ${schoolEventCount}`);
-        
-        // Final recommendation
-        if (dateLineCount === 0) {
-            console.log('\n❌ ISSUE: No date patterns found. The PDF might not contain dates in supported formats.');
-        } else if (eventLines.length === 0) {
-            console.log('\n❌ ISSUE: No event words found. The PDF might not contain event descriptions.');
-        } else {
-            console.log('\n✅ Both dates and events were found. The parsing algorithm might need fine-tuning for this specific format.');
-        }
-    }
-
-    // Set current step
-    setStep(step) {
-        this.currentStep = Math.max(1, Math.min(step, this.maxSteps));
-    }
-
-    // Move to next step
-    nextStep() {
-        if (this.currentStep < this.maxSteps) {
-            this.currentStep++;
-        }
-        return this.currentStep;
-    }
-
-    // Move to previous step
-    previousStep() {
-        if (this.currentStep > 1) {
-            this.currentStep--;
-        }
-        return this.currentStep;
-    }
+  }
+  const uniq=new Map();
+  for (const r of cands){
+    const key = `${r.legs.map(l=>l.lineId+':'+l.from+'>'+l.to).join('|')}-${r.depart}`;
+    if (!uniq.has(key)) uniq.set(key,r);
+  }
+  return [...uniq.values()].sort((a,b)=>(a.arrive-b.arrive)||(a.transfers-b.transfers)).slice(0,3);
 }
 
-// Create global instance
-window.pdfEventParser = new PDFEventParser();
+/* ===== DOM ===== */
+const fromSel = document.getElementById('fromStop');
+const toSel   = document.getElementById('toStop');
+const depTime = document.getElementById('depTime');
+const depDate = document.getElementById('depDate');
+const resultsEl = document.getElementById('results');
+const favBtn = document.getElementById('favBtn');
+const favsEl = document.getElementById('favs');
+const btnShowOnMap = document.getElementById('btnShowOnMap');
+const btnResetMap  = document.getElementById('btnResetMap');
+const overlay = document.getElementById("overlay");
 
-// Export for use in other modules
-export { PDFEventParser };
+/* ===== טפסים/ברירת מחדל ===== */
+function populateStops(){
+  for (const s of ALL_STOPS){
+    const o1=document.createElement('option'); o1.value=s; o1.textContent=s;
+    const o2=document.createElement('option'); o2.value=s; o2.textContent=s;
+    fromSel.appendChild(o1); toSel.appendChild(o2);
+  }
+  fromSel.value="Waterfront"; toSel.value="Commercial–Broadway";
+  const now = new Date(); depDate.valueAsDate=now;
+  depTime.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+}
+function minutesFromDateTimeInputs(){
+  const d = depDate.value? new Date(depDate.value) : new Date();
+  const [hh,mm] = (depTime.value || "00:00").split(':').map(Number);
+  d.setHours(hh??0, mm??0, 0, 0);
+  const mins = d.getHours()*60 + d.getMinutes();
+  return mins < 180 ? mins+1440 : mins; // תמיכה עד 01:15
+}
+
+/* ===== מועדפים ===== */
+function loadFavs(){
+  favsEl.innerHTML = '';
+  const favs = JSON.parse(localStorage.getItem('mvpfavs') || '[]');
+  if (!Array.isArray(favs) || favs.length === 0){
+    favsEl.innerHTML = `<span class="text-slate-500 text-sm">אין מועדפים עדיין.</span>`;
+    return;
+  }
+  for (const f of favs){
+    const b = document.createElement('button');
+    b.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-900 hover:bg-amber-200';
+    b.textContent = `⭐ ${f.from} → ${f.to}`;
+    b.addEventListener('click', ()=>{
+      fromSel.value = f.from; toSel.value = f.to;
+      document.getElementById('tripForm').dispatchEvent(new Event('submit'));
+    });
+    favsEl.appendChild(b);
+  }
+}
+function saveFav(from, to){
+  const favs = JSON.parse(localStorage.getItem('mvpfavs') || '[]');
+  if (!favs.find(x => x.from === from && x.to === to)){
+    favs.push({ from, to });
+    localStorage.setItem('mvpfavs', JSON.stringify(favs));
+    loadFavs();
+  }
+}
+
+/* ===== תוצאות ===== */
+let lastTrips = [];
+function renderResults(list){
+  resultsEl.innerHTML='';
+  if (!list.length){
+    resultsEl.innerHTML = `<p class="text-sm text-slate-600">לא נמצאו חלופות מתאימות בטווח השעות שנבחר.</p>`;
+    return;
+  }
+  list.forEach((r,idx)=>{
+    const dur = r.arrive - r.depart;
+    const el = document.createElement('div');
+    el.className='border rounded-xl p-3 bg-white';
+    el.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold" style="background:#eef">${r.transfers? (r.transfers===1?'החלפה אחת':'2 החלפות') : 'ישיר'}</span>
+        <span class="text-sm text-slate-600">יציאה ${toHHMM(r.depart)} • הגעה ${toHHMM(r.arrive)} • ${dur} דק׳</span>
+        <button class="ml-auto px-2 py-1.5 text-xs rounded bg-slate-100 hover:bg-slate-200" data-idx="${idx}">הצג מסלול על המפה</button>
+      </div>
+      <ol class="mt-2 space-y-2">
+        ${r.legs.map(l=>`
+          <li class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" style="background:${l.color}"></span>
+            <span class="font-medium">${l.line}</span>
+            <span class="text-slate-700">— ${l.from} → ${l.to}</span>
+            <span class="ml-auto text-xs text-slate-600">${toHHMM(l.depart)} → ${toHHMM(l.arrive)}</span>
+          </li>
+        `).join('')}
+      </ol>
+    `;
+    el.querySelector('button').addEventListener('click', async ()=>{
+      await loadWikiMapOnce(); clearOverlay(); drawHighlightedTrip(lastTrips[idx]);
+    });
+    resultsEl.appendChild(el);
+  });
+}
+
+/* ===== מפה: טעינת SVG מוויקיפדיה + חילוץ קואורדינטות ===== */
+/* ננסה קודם את ה-URL שנתת, ואם נכשל — גיבוי לקובץ אחר דומה. */
+const WIKI_SVG_URLS = [
+  "https://upload.wikimedia.org/wikipedia/commons/3/34/Vancouver_SkyTrain_Map.svg",            // זה שנתת
+  "https://upload.wikimedia.org/wikipedia/commons/e/ec/Vancouver_Skytrain_and_Seabus_Map.svg"   // גיבוי
+];
+
+let __WIKI_READY__ = false;
+let __WIKI_VIEWBOX__ = "0 0 512 295";
+let __POS__ = {}; // name -> {x,y}
+
+const NORM = s => s.normalize('NFKC').replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toLowerCase();
+const ALIASES = new Map([
+  ["production way–university", "Production Way–University"],
+  ["production way/university",  "Production Way–University"],
+  ["commercial-broadway",        "Commercial–Broadway"],
+  ["vancouver city centre",      "Vancouver City Centre"],
+  ["oakridge-41st avenue",       "Oakridge–41st Avenue"],
+  ["langara-49th avenue",        "Langara–49th Avenue"],
+  ["main street-science world",  "Main Street–Science World"],
+  ["yaletown-roundhouse",        "Yaletown–Roundhouse"]
+]);
+
+async function fetchTextWithFallback(urls){
+  let lastErr;
+  for (const url of urls){
+    try{
+      const res = await fetch(url, { mode: "cors", cache: "force-cache" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const txt = await res.text();
+      return { txt, url };
+    }catch(e){ lastErr = e; console.warn("SVG fetch failed for", url, e); }
+  }
+  throw lastErr || new Error("Failed to fetch any SVG");
+}
+
+async function loadWikiMapOnce(){
+  if (__WIKI_READY__) return;
+
+  const holder = document.getElementById("wikiSvgHolder");
+  holder.innerHTML = '<div class="w-full h-full grid place-items-center text-sm text-slate-600">טוען מפה…</div>';
+
+  let txt, usedUrl;
+  try{
+    const r = await fetchTextWithFallback(WIKI_SVG_URLS);
+    txt = r.txt; usedUrl = r.url;
+  }catch(e){
+    console.error("שגיאה בטעינת SVG מהויקי:", e);
+    // Fallback אחרון: נציג לפחות תמונה
+    holder.innerHTML = `<img src="${WIKI_SVG_URLS[0]}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;">`;
+    overlay.removeAttribute("viewBox");
+    // לא נוכל לחלץ קואורדינטות, אבל תהיה מפה גלויה
+    return;
+  }
+
+  // ננתח באמצעות DOMParser כדי לקבל <svg> תקני בדפדפנים
+  let baseSvg;
+  try{
+    const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
+    baseSvg = doc.documentElement;
+    if (!baseSvg || baseSvg.nodeName.toLowerCase() !== "svg") throw new Error("No <svg> root");
+    // ריקון והחדרה
+    holder.innerHTML = "";
+    // חשוב: לתת מידות גמישות
+    baseSvg.removeAttribute("width");
+    baseSvg.removeAttribute("height");
+    baseSvg.style.width = "100%";
+    baseSvg.style.height = "100%";
+    holder.appendChild(baseSvg);
+  }catch(parseErr){
+    console.error("Parsing failed; switching to <img> fallback", parseErr);
+    holder.innerHTML = `<img src="${usedUrl}" alt="SkyTrain Map" style="width:100%;height:100%;object-fit:contain;">`;
+    overlay.removeAttribute("viewBox");
+    return;
+  }
+
+  // סנכרון viewBox לשכבת ההדגשה
+  const vb = baseSvg.getAttribute("viewBox") || __WIKI_VIEWBOX__;
+  __WIKI_VIEWBOX__ = vb;
+  overlay.setAttribute("viewBox", vb);
+  overlay.innerHTML = "";
+
+  // אסוף תוויות ועיגולים לחילוץ קואורדינטות
+  const texts = [...baseSvg.querySelectorAll("text")].map(t => ({
+    el: t,
+    x: +t.getAttribute("x") || 0,
+    y: +t.getAttribute("y") || 0,
+    label: (t.textContent || "").replace(/\s+/g, " ").trim()
+  })).filter(t => t.label && t.label.length <= 60);
+
+  const circles = [...baseSvg.querySelectorAll("circle")].map(c => ({
+    el: c, cx: +c.getAttribute("cx"), cy: +c.getAttribute("cy"),
+    r: +(c.getAttribute("r") || 0)
+  })).filter(c => Number.isFinite(c.cx) && Number.isFinite(c.cy) && c.r >= 3 && c.r <= 9);
+
+  const labelPoint = new Map();
+  for (const t of texts){ labelPoint.set(NORM(t.label), { x:t.x, y:t.y, raw:t.label }); }
+
+  function nearestLabelTo(cx, cy){
+    let best = null, bestD2 = Infinity;
+    for (const t of texts){
+      const dx = (t.x - cx), dy = (t.y - cy), d2 = dx*dx + dy*dy;
+      if (d2 < bestD2){ bestD2 = d2; best = t; }
+    }
+    return (best && Math.sqrt(bestD2) <= 45) ? best : null;
+  }
+
+  const pos = {};
+  const wanted = new Set(ALL_STOPS);
+
+  // (1) עיגול בתוך <a title="...">
+  const anchors = [...baseSvg.querySelectorAll("a")];
+  for (const a of anchors){
+    const ttl = a.getAttribute("title") || a.getAttribute("xlink:title") || "";
+    if (!ttl) continue;
+    const circle = a.querySelector("circle"); if (!circle) continue;
+    const cx = +circle.getAttribute("cx"), cy = +circle.getAttribute("cy");
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    let name = ttl.replace(/\s+station\b/i,"").trim();
+    const alias = ALIASES.get(NORM(name)); if (alias) name = alias;
+    if (wanted.has(name)) pos[name] = { x: cx, y: cy };
+  }
+
+  // (2) עיגול→תווית קרובה
+  for (const c of circles){
+    const lab = nearestLabelTo(c.cx, c.cy); if (!lab) continue;
+    const labKey = NORM(lab.label);
+    const canonical = ALIASES.get(labKey) || [...wanted].find(n => NORM(n) === labKey);
+    if (canonical && !pos[canonical]) pos[canonical] = { x: c.cx, y: c.cy };
+  }
+
+  // (3) תווית על הנקודה (fallback)
+  for (const name of wanted){
+    if (pos[name]) continue;
+    const t = labelPoint.get(NORM(name));
+    if (t){ pos[name] = { x: t.x, y: t.y }; }
+  }
+
+  __POS__ = pos;
+  __WIKI_READY__ = true;
+  console.info("stations resolved:", Object.keys(pos).length, "from", usedUrl);
+}
+
+/* ===== ציור/ניקוי הדגשה ===== */
+function clearOverlay(){ overlay.innerHTML = ""; }
+function drawHighlightedTrip(trip){
+  if (!trip) return;
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("class", "route-highlight");
+  overlay.appendChild(g);
+
+  for (const leg of trip.legs){
+    const pts = [];
+    for (const stop of leg.path){
+      const p = __POS__[stop];
+      if (p) pts.push(p);
+    }
+    if (pts.length < 2) continue;
+
+    const d = pts.map((p,i)=> (i?`L${p.x},${p.y}`:`M${p.x},${p.y}`)).join('');
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", leg.color);
+    path.setAttribute("stroke-width", "9");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    path.setAttribute("opacity", "0.95");
+    g.appendChild(path);
+  }
+}
+
+/* ===== אירועים ===== */
+document.getElementById('tripForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const from=fromSel.value, to=toSel.value;
+  if (from===to){ resultsEl.innerHTML=`<p class="text-sm text-red-600">בחר/י מוצא ויעד שונים.</p>`; return; }
+  const dep = minutesFromDateTimeInputs();
+  const list = planCandidates(from,to,dep);
+  lastTrips = list;
+  renderResults(list);
+  await loadWikiMapOnce();
+  clearOverlay();
+});
+document.getElementById('swapBtn').addEventListener('click', ()=>{
+  const a=fromSel.value, b=toSel.value; fromSel.value=b; toSel.value=a;
+});
+favBtn.addEventListener('click', ()=>{ saveFav(fromSel.value, toSel.value); });
+btnShowOnMap?.addEventListener('click', async ()=>{
+  if (!lastTrips.length) return;
+  await loadWikiMapOnce(); clearOverlay(); drawHighlightedTrip(lastTrips[0]);
+});
+btnResetMap?.addEventListener('click', ()=>{ clearOverlay(); });
+
+/* ===== אתחול ===== */
+populateStops(); loadFavs();
